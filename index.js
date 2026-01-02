@@ -168,7 +168,7 @@ app.listen(PORT, async () => {
 
   // PENTING: Setel webhook ke URL aplikasi Anda di Render
   // Variabel RENDER_EXTERNAL_URL akan diatur nanti di dashboard Render
-  const webhookUrl = `${process.env.RENDER_EXTERNAL_URL}/telegram-webhook`;
+  const webhookUrl = process.env.RENDER_EXTERNAL_URL;
   
   try {
     await bot.setWebHook(webhookUrl);
