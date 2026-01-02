@@ -2,6 +2,7 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const { BetaAnalyticsDataClient } = require('@google-analytics/data');
+const { GoogleAuth } = require('google-auth-library');
 
 // Ambil konfigurasi dari environment variables
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -9,7 +10,11 @@ const groupChatId = process.env.TELEGRAM_GROUP_CHAT_ID;
 const laporanThreadId = process.env.LAPORAN_THREAD_ID;
 
 const bot = new TelegramBot(token);
-const analyticsDataClient = new BetaAnalyticsDataClient();
+const auth = new GoogleAuth({
+  credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS), // <-- Baca JSON dari env var
+  scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
+});
+const analyticsDataClient = new BetaAnalyticsDataClient({ auth }); // <-- Berikan auth ke client
 
 // --- SALIN 3 FUNGSI UTAMA DARI INDEX.JS LAMA ANDA KE SINI ---
 // 1. Fungsi fetchGA4Data()
