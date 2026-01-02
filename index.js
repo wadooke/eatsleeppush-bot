@@ -2,6 +2,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express'); // Tambah Express untuk server web
 const { BetaAnalyticsDataClient } = require('@google-analytics/data');
+const { GoogleAuth } = require('google-auth-library');
 require('dotenv').config();
 
 // 1. KONFIGURASI
@@ -15,7 +16,11 @@ const bot = new TelegramBot(token);
 
 // Inisialisasi Express dan Client GA4
 const app = express();
-const analyticsDataClient = new BetaAnalyticsDataClient();
+const auth = new GoogleAuth({
+  credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS), // <-- Baca JSON dari env var
+  scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
+});
+const analyticsDataClient = new BetaAnalyticsDataClient({ auth }); // <-- Berikan auth ke client
 
 // 2. FUNGSI UNTUK MENGAMBIL DATA GA4 (SAMA)
 async function fetchGA4Data() {
