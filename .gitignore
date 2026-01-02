@@ -1,0 +1,14 @@
+# Kunci dan Rahasia
+service-account-key.json
+.env
+.env.local
+
+# Dependensi Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.DS_Store
+Thumbs.db
