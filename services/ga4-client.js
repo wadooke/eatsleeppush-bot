@@ -51,40 +51,71 @@ async function testGA4Connection(client) {
     console.log('   ⚠️  GA4 connection test skipped (missing client or property ID)');
     return;
   }
+
+  const propertyId = process.env.GA4_PROPERTY_ID.replace('properties/', ''); // Pastikan hanya angka
+  console.log(`🧪 [DIAGNOSTICS] Starting GA4 connection test...`);
+  console.log(`   Property ID: "${propertyId}"`);
   
-  const propertyId = process.env.GA4_PROPERTY_ID;
-  console.log(`   Testing connection to GA4 Property: ${propertyId}`);
-  
+  // Dapatkan email Service Account untuk referensi
+  let serviceEmail = 'Unknown';
   try {
-    // Simple test query
+    const creds = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS);
+    serviceEmail = creds.client_email;
+    console.log(`   Service Account: ${serviceEmail}`);
+  } catch (e) {
+    console.log(`   ❌ Cannot parse service account credentials`);
+  }
+
+  try {
+    console.log(`   Testing with simple query...`);
+    // Query yang sangat sederhana
     const [response] = await client.runReport({
       property: `properties/${propertyId}`,
-      dateRanges: [{ startDate: '1daysAgo', endDate: 'today' }],
+      dateRanges: [{ startDate: '2020-01-01', endDate: 'today' }], // Rentang tanggal lebar
       metrics: [{ name: 'sessions' }],
       limit: 1
     });
     
-    console.log(`   ✅ GA4 connection test successful`);
-    console.log(`      Data available: ${response.rows ? 'Yes' : 'No'}`);
+    console.log(`   ✅ [DIAGNOSTICS] SUCCESS! GA4 connection is VALID.`);
+    console.log(`      Server accepted Property ID: ${propertyId}`);
     
   } catch (error) {
-    console.error(`   ❌ GA4 connection test failed:`);
-    console.error(`      Error: ${error.message}`);
+    console.error(`   ❌ [DIAGNOSTICS] GA4 connection test FAILED:`);
+    console.error(`      Main Message: "${error.message}"`);
     
-    // Provide helpful diagnostics
-    if (error.message.includes('INVALID_ARGUMENT')) {
-      console.error(`      Likely causes:`);
-      console.error(`      1. Property ID "${propertyId}" is incorrect`);
-      console.error(`      2. Service account lacks access to this property`);
-      console.error(`      3. Property doesn't exist or isn't a GA4 property`);
+    // ===== BAGIAN PENTING: Mencoba segala cara untuk mendapatkan detail error =====
+    console.error(`      --- Full Error Object Inspection ---`);
+    
+    // Cara 1: Error details langsung dari Google API
+    if (error.details) {
+      console.error(`      [VIA error.details]:`, JSON.stringify(error.details, null, 2));
     }
     
-    if (error.message.includes('PERMISSION_DENIED')) {
-      console.error(`      Service account needs "Viewer" access in Google Analytics`);
-      console.error(`      Add this email to GA4 Property Access Management:`);
-      console.error(`      ${JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS).client_email}`);
+    // Cara 2: Metadata gRPC
+    if (error.metadata) {
+      console.error(`      [VIA error.metadata]:`, JSON.stringify(error.metadata.getMap(), null, 2));
     }
+    
+    // Cara 3: Inspect semua properti pada objek error
+    console.error(`      [All Error Properties]:`);
+    for (let key in error) {
+      if (error[key] !== undefined && typeof error[key] !== 'function') {
+        try {
+          console.error(`        ${key}: ${JSON.stringify(error[key])}`);
+        } catch (e) {
+          console.error(`        ${key}: [Cannot stringify]`);
+        }
+      }
+    }
+    // ===== AKHIR BAGIAN DIAGNOSIS =====
+    
+    console.error(`      --- Recommended Action ---`);
+    console.error(`      1. DOUBLE-CHECK Property ID in Railway Variables.`);
+    console.error(`         Current value: "${process.env.GA4_PROPERTY_ID}"`);
+    console.error(`         It should be NUMERIC ONLY, e.g., "507582936".`);
+    console.error(`      2. VERIFY Service Account access in Google Analytics:`);
+    console.error(`         Go to GA4 Admin > Property Access Management`);
+    console.error(`         Add this email: ${serviceEmail} with "Viewer" role.`);
+    console.error(`      3. Ensure the GA4 property exists and is active.`);
   }
 }
-
-module.exports = { initializeGA4Client };
