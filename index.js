@@ -3,7 +3,6 @@ const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const { BetaAnalyticsDataClient } = require('@google-analytics/data');
 const { GoogleAuth } = require('google-auth-library');
-require('dotenv').config();
 
 // 1. KONFIGURASI
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -12,13 +11,13 @@ const laporanThreadId = process.env.LAPORAN_THREAD_ID;
 const pengumumanThreadId = process.env.PENGUMUMAN_THREAD_ID;
 const ga4PropertyId = process.env.GA4_PROPERTY_ID;
 
-// Database sederhana untuk menyimpan data user (gunakan Map, dalam produksi gunakan database nyata)
+// Database sederhana untuk menyimpan data user
 const userDatabase = new Map();
 
 // PENTING: Inisialisasi Bot TANPA Polling (hanya webhook)
 const bot = new TelegramBot(token, { 
-  polling: false, // PASTIKAN polling false untuk webhook
-  onlyFirstMatch: true // Optimasi untuk handler teks
+  polling: false,
+  onlyFirstMatch: true
 });
 
 // Inisialisasi Express dan Client GA4
@@ -190,12 +189,12 @@ bot.onText(/\/debug_ga4/, async (msg) => {
   }
 });
 
-// Handler /daftar
+// Handler /daftar - DIPERBAIKI: parsing argumen dengan tanda kutip
 bot.onText(/\/daftar (.+)/, async (msg, match) => {
   try {
     const chatId = msg.chat.id;
     const adminId = msg.from.id;
-    const args = match[1].split(' ');
+    const fullArgs = match[1];
 
     // Cek apakah perintah berasal dari grup yang benar
     if (String(chatId) !== groupChatId) {
@@ -210,6 +209,30 @@ bot.onText(/\/daftar (.+)/, async (msg, match) => {
       });
     }
 
+    // Parsing argumen dengan support untuk quoted strings
+    const args = [];
+    let currentArg = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < fullArgs.length; i++) {
+      const char = fullArgs[i];
+      
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ' ' && !inQuotes) {
+        if (currentArg) {
+          args.push(currentArg);
+          currentArg = '';
+        }
+      } else {
+        currentArg += char;
+      }
+    }
+    
+    if (currentArg) {
+      args.push(currentArg);
+    }
+
     // Validasi jumlah argumen
     if (args.length < 4) {
       return bot.sendMessage(chatId, '❌ Format salah! Gunakan: /daftar id_telegram "Nama User" "Link" "Artikel"', {
@@ -218,18 +241,18 @@ bot.onText(/\/daftar (.+)/, async (msg, match) => {
     }
 
     const telegramId = args[0];
-    const userName = args[1].replace(/"/g, '');
-    const link = args[2].replace(/"/g, '');
-    const artikel = args.slice(3).join(' ').replace(/"/g, '');
+    const userName = args[1];
+    const link = args[2];
+    const artikel = args.slice(3).join(' '); // Gabungkan sisa argumen untuk artikel
 
-    // Validasi telegram ID
+    // Validasi telegram ID (harus angka)
     if (!/^\d+$/.test(telegramId)) {
       return bot.sendMessage(chatId, '❌ ID Telegram harus berupa angka!', {
         ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
       });
     }
 
-    // Simpan data user
+    // Simpan data user ke database
     const userData = {
       id: telegramId,
       nama: userName,
@@ -266,7 +289,6 @@ bot.onText(/\/daftar (.+)/, async (msg, match) => {
     
   } catch (error) {
     console.error('Error di /daftar:', error.message);
-    // Jangan coba mengirim pesan error yang mungkin gagal lagi
   }
 });
 
@@ -366,7 +388,7 @@ bot.onText(/\/hapus_user (.+)/, async (msg, match) => {
   }
 });
 
-// Handler /cekvar (dengan error handling yang lebih baik)
+// Handler /cekvar
 bot.onText(/\/cekvar/, async (msg) => {
   const chatId = msg.chat.id;
   const userName = msg.from.first_name || 'Sahabat';
@@ -506,7 +528,7 @@ app.post('/telegram-webhook', (req, res) => {
     res.sendStatus(200);
   } catch (error) {
     console.error('Error processing webhook update:', error.message);
-    res.sendStatus(200); // Tetap return 200 agar Telegram tidak mengirim ulang
+    res.sendStatus(200);
   }
 });
 
@@ -536,6 +558,10 @@ app.listen(PORT, async () => {
     return;
   }
 
+  if (!ga4PropertyId) {
+    console.error('❌ GA4_PROPERTY_ID tidak ditemukan di environment variables');
+  }
+
   // Setel webhook
   const webhookUrl = process.env.RAILWAY_STATIC_URL || process.env.RENDER_EXTERNAL_URL;
   
@@ -544,7 +570,10 @@ app.listen(PORT, async () => {
     return;
   }
 
-  const fullWebhookUrl = `${webhookUrl}/telegram-webhook`;
+  // Pastikan URL diawali dengan https://
+  const fullWebhookUrl = webhookUrl.startsWith('http') 
+    ? `${webhookUrl}/telegram-webhook`
+    : `https://${webhookUrl}/telegram-webhook`;
   
   try {
     await bot.setWebHook(fullWebhookUrl, {
@@ -583,11 +612,6 @@ app.listen(PORT, async () => {
     
   } catch (error) {
     console.error('❌ Gagal menyetel webhook:', error.message);
-    
-    // Log error tanpa menampilkan token
-    if (error.message.includes('token')) {
-      console.error('❌ Kemungkinan token bot salah atau tidak valid');
-    }
   }
 });
 
@@ -596,7 +620,6 @@ process.on('SIGTERM', async () => {
   console.log('Menerima SIGTERM, melakukan cleanup...');
   
   try {
-    // Hapus webhook sebelum shutdown
     await bot.deleteWebHook();
     console.log('✅ Webhook berhasil dihapus');
   } catch (error) {
