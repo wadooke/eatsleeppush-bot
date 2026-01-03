@@ -9,7 +9,12 @@ require('dotenv').config();
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const groupChatId = process.env.TELEGRAM_GROUP_CHAT_ID;
 const laporanThreadId = process.env.LAPORAN_THREAD_ID;
+const pengumumanThreadId = process.env.PENGUMUMAN_THREAD_ID; // Tambahkan ini di .env
 const ga4PropertyId = process.env.GA4_PROPERTY_ID;
+
+// Database sederhana untuk menyimpan data user
+// Dalam produksi, sebaiknya gunakan database seperti MongoDB atau PostgreSQL
+const userDatabase = new Map(); // key: telegramId, value: userData
 
 // PENTING: Inisialisasi Bot TANPA Polling
 const bot = new TelegramBot(token);
@@ -155,6 +160,173 @@ bot.onText(/\/debug_ga4/, async (msg) => {
   }
 });
 
+// --- PERINTAH BARU: /daftar ---
+bot.onText(/\/daftar (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const adminId = msg.from.id;
+  const args = match[1].split(' ');
+
+  // Cek apakah perintah berasal dari grup yang benar
+  if (String(chatId) !== groupChatId) {
+    return bot.sendMessage(chatId, 'Perintah ini hanya dapat digunakan di grup EatSleepPush.');
+  }
+
+  // Cek apakah pengirim adalah admin (Anda bisa menambahkan daftar admin di .env)
+  const adminIds = process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',').map(id => id.trim()) : [];
+  if (!adminIds.includes(adminId.toString())) {
+    return bot.sendMessage(chatId, '❌ Hanya admin yang dapat menggunakan perintah ini.', {
+      ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+    });
+  }
+
+  // Validasi jumlah argumen
+  if (args.length < 4) {
+    return bot.sendMessage(chatId, '❌ Format salah! Gunakan: /daftar id_telegram "Nama User" "Link" "Artikel"', {
+      ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+    });
+  }
+
+  const telegramId = args[0];
+  const userName = args[1].replace(/"/g, '');
+  const link = args[2].replace(/"/g, '');
+  const artikel = args.slice(3).join(' ').replace(/"/g, '');
+
+  // Validasi telegram ID (harus angka)
+  if (!/^\d+$/.test(telegramId)) {
+    return bot.sendMessage(chatId, '❌ ID Telegram harus berupa angka!', {
+      ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+    });
+  }
+
+  // Simpan data user ke database
+  const userData = {
+    id: telegramId,
+    nama: userName,
+    link: link,
+    artikel: artikel,
+    tanggalDaftar: new Date().toISOString(),
+    didaftarkanOleh: adminId
+  };
+
+  userDatabase.set(telegramId, userData);
+
+  // Kirim konfirmasi ke admin
+  await bot.sendMessage(chatId, `✅ User berhasil didaftarkan!\n\nID: ${telegramId}\nNama: ${userName}`, {
+    ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+  });
+
+  // Kirim pengumuman ke topik PENGUMUMAN
+  try {
+    const pengumumanMessage = `🎉 *SELAMAT DATANG* 🎉\n\n` +
+      `Selamat bergabung di grup kami! Berikut data user baru:\n\n` +
+      `👤 *Nama User:* ${userName}\n` +
+      `🆔 *ID Telegram:* ${telegramId}\n` +
+      `🔗 *Link:* ${link}\n` +
+      `📝 *Artikel:* ${artikel}\n\n` +
+      `*Tanggal Pendaftaran:* ${new Date().toLocaleDateString('id-ID')}\n` +
+      `*Didaftarkan oleh:* Admin`;
+
+    const pengumumanOptions = {
+      parse_mode: 'Markdown',
+      ...(pengumumanThreadId && { message_thread_id: parseInt(pengumumanThreadId) })
+    };
+
+    await bot.sendMessage(groupChatId, pengumumanMessage, pengumumanOptions);
+    console.log(`✅ Pengumuman user baru berhasil dikirim: ${userName}`);
+    
+  } catch (error) {
+    console.error('Error mengirim pengumuman:', error);
+    await bot.sendMessage(chatId, '⚠️ User berhasil didaftarkan, tetapi gagal mengirim pengumuman.', {
+      ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+    });
+  }
+});
+
+// --- PERINTAH BARU: /userid ---
+bot.onText(/\/userid/, async (msg) => {
+  const chatId = msg.chat.id;
+  
+  // Cek apakah perintah berasal dari grup yang benar
+  if (String(chatId) !== groupChatId) {
+    return bot.sendMessage(chatId, 'Perintah ini hanya dapat digunakan di grup EatSleepPush.');
+  }
+
+  // Kirim ID telegram pengguna yang mengetik perintah
+  const userId = msg.from.id;
+  const userName = msg.from.first_name || 'User';
+  
+  await bot.sendMessage(chatId, `👤 *ID Telegram Anda:*\n${userId}\n\n*Nama:* ${userName}\n\nSalin ID ini untuk pendaftaran.`, {
+    parse_mode: 'Markdown',
+    ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+  });
+});
+
+// --- PERINTAH BARU: /lihat_user (untuk admin melihat user terdaftar) ---
+bot.onText(/\/lihat_user/, async (msg) => {
+  const chatId = msg.chat.id;
+  const adminId = msg.from.id;
+
+  // Cek apakah pengirim adalah admin
+  const adminIds = process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',').map(id => id.trim()) : [];
+  if (!adminIds.includes(adminId.toString())) {
+    return bot.sendMessage(chatId, '❌ Hanya admin yang dapat menggunakan perintah ini.', {
+      ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+    });
+  }
+
+  if (userDatabase.size === 0) {
+    return bot.sendMessage(chatId, '📭 Belum ada user yang terdaftar.', {
+      ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+    });
+  }
+
+  let userList = `📋 *DAFTAR USER TERDAFTAR* (${userDatabase.size} user)\n\n`;
+  
+  let index = 1;
+  for (const [userId, userData] of userDatabase) {
+    userList += `${index}. *${userData.nama}*\n`;
+    userList += `   ID: ${userId}\n`;
+    userList += `   Link: ${userData.link}\n`;
+    userList += `   Artikel: ${userData.artikel.substring(0, 50)}${userData.artikel.length > 50 ? '...' : ''}\n`;
+    userList += `   Tanggal: ${new Date(userData.tanggalDaftar).toLocaleDateString('id-ID')}\n\n`;
+    index++;
+  }
+
+  await bot.sendMessage(chatId, userList, {
+    parse_mode: 'Markdown',
+    ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+  });
+});
+
+// --- PERINTAH BARU: /hapus_user (untuk admin menghapus user) ---
+bot.onText(/\/hapus_user (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const adminId = msg.from.id;
+  const userIdToDelete = match[1].trim();
+
+  // Cek apakah pengirim adalah admin
+  const adminIds = process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',').map(id => id.trim()) : [];
+  if (!adminIds.includes(adminId.toString())) {
+    return bot.sendMessage(chatId, '❌ Hanya admin yang dapat menggunakan perintah ini.', {
+      ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+    });
+  }
+
+  if (!userDatabase.has(userIdToDelete)) {
+    return bot.sendMessage(chatId, '❌ User tidak ditemukan dalam database.', {
+      ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+    });
+  }
+
+  const deletedUser = userDatabase.get(userIdToDelete);
+  userDatabase.delete(userIdToDelete);
+
+  await bot.sendMessage(chatId, `✅ User berhasil dihapus!\n\n*Nama:* ${deletedUser.nama}\n*ID:* ${userIdToDelete}`, {
+    parse_mode: 'Markdown',
+    ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+  });
+});
+
 // --- PERINTAH BARU: /cekvar (GA4 Realtime - Top 10 Pages) ---
 bot.onText(/\/cekvar/, async (msg) => {
   const chatId = msg.chat.id;
@@ -263,7 +435,7 @@ app.listen(PORT, async () => {
     console.log(`✅ Webhook berhasil disetel ke: ${webhookUrl}`);
     
     // Kirim pesan startup ke grup setelah webhook siap
-    bot.sendMessage(groupChatId, '✅ *Bot Laporan GA4 30-menit telah aktif (Webhook Mode)!*\n\nPerintah tersedia:\n• /laporan_sekarang - Kirim laporan manual\n• /debug_ga4 - Test koneksi GA4', {
+    bot.sendMessage(groupChatId, '✅ *Bot Laporan GA4 30-menit telah aktif (Webhook Mode)!*\n\nPerintah tersedia:\n• /laporan_sekarang - Kirim laporan manual\n• /debug_ga4 - Test koneksi GA4\n• /userid - Lihat ID Telegram Anda\n• /cekvar - Laporan realtime 30 menit\n\n*Perintah Admin:*\n• /daftar id "Nama" "Link" "Artikel"\n• /lihat_user - Lihat semua user terdaftar\n• /hapus_user id - Hapus user dari database', {
       parse_mode: 'Markdown',
       ...(laporanThreadId && { message_thread_id: parseInt(laporanThreadId) })
     }).catch(console.error);
@@ -273,7 +445,38 @@ app.listen(PORT, async () => {
   }
 });
 
-// 8. CATATAN PENTING:
-// - CRON JOB DIHAPUS dari file ini. Laporan otomatis akan dijalankan oleh Render Cron Job terpisah.
-// - Buat file terpisah `send-report.js` yang hanya berisi fungsi `kirimLaporanOtomatis()`.
-// - Di Render, buat Cron Job Service baru yang menjalankan `node send-report.js` setiap 30 menit.
+// 8. Fungsi tambahan untuk mendapatkan info user saat join group
+bot.on('new_chat_members', (msg) => {
+  const chatId = msg.chat.id;
+  
+  // Cek apakah event berasal dari grup yang benar
+  if (String(chatId) !== groupChatId) return;
+
+  msg.new_chat_members.forEach((member) => {
+    // Jangan respon jika bot sendiri yang join
+    if (member.id === bot.getMe().then(me => me.id)) return;
+
+    const userId = member.id;
+    const userName = member.first_name || 'User';
+    
+    // Kirim ID user ke grup untuk admin
+    const adminMessage = `👤 *User Baru Bergabung*\n\n` +
+      `Nama: ${userName}\n` +
+      `ID: ${userId}\n\n` +
+      `Untuk mendaftarkan user ini, gunakan perintah:\n` +
+      `/daftar ${userId} "Nama User" "Link" "Artikel"`;
+    
+    // Kirim ke thread laporan atau chat biasa
+    bot.sendMessage(chatId, adminMessage, {
+      parse_mode: 'Markdown',
+      ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+    }).catch(console.error);
+  });
+});
+
+// 9. Simpan data ke file saat server berhenti (opsional)
+process.on('SIGINT', () => {
+  console.log('Menyimpan data user sebelum shutdown...');
+  // Di sini Anda bisa menambahkan logika untuk menyimpan data ke file
+  process.exit(0);
+});
