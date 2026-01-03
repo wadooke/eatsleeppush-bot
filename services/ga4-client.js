@@ -119,3 +119,6 @@ async function testGA4Connection(client) {
     console.error(`      3. Ensure the GA4 property exists and is active.`);
   }
 }
+
+// services/ga4-client.js - Akhir file
+module.exports = { initializeGA4Client };
