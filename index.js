@@ -469,6 +469,11 @@ bot.onText(/\/cekvar/, async (msg) => {
     console.error('Kode:', error.code);
     console.error('Detail:', error.details); // Ini penting!
     console.error('Metadata:', error.metadata);
+    // Detail spesifik dari Google API biasanya ada di sini:
+    if (error.details) {
+    console.error('Detail Lengkap:', JSON.stringify(error.details, null, 2));
+    }
+    console.error('Kode Error:', error.code);
     
     // Kirim pesan error yang aman ke Telegram
     const errorMessage = `❌ *Gagal mengambil data realtime.*\n\nSilakan coba lagi nanti.`;
