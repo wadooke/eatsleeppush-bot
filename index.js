@@ -155,6 +155,89 @@ bot.onText(/\/debug_ga4/, async (msg) => {
   }
 });
 
+// --- PERINTAH BARU: /cekvar (GA4 Realtime - Top 10 Pages) ---
+bot.onText(/\/cekvar/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userName = msg.from.first_name || 'Sahabat';
+
+  // Cek apakah perintah berasal dari grup yang benar (opsional)
+  if (String(chatId) !== groupChatId) {
+    // Bisa juga membalas di chat pribadi dengan pesan berbeda
+    return bot.sendMessage(chatId, 'Perintah ini hanya dapat digunakan di grup EatSleepPush.');
+  }
+
+  // Kirim pesan "sedang memproses"
+  const processingMsg = await bot.sendMessage(chatId, `Halo ${userName}... 🔍 Sedang mengambil data realtime dari GA4...`);
+
+  try {
+    // FUNGSI KHUSUS UNTUK MENGAMBIL DATA REAL-TIME 30 MENIT
+    const [realtimeResponse] = await analyticsDataClient.runReport({
+      property: process.env.GA4_PROPERTY_ID,
+      dateRanges: [{ startDate: '30minutesAgo', endDate: 'now' }],
+      dimensions: [
+        { name: 'pagePath' },      // Path halaman
+        { name: 'screenClass' }    // Jenis perangkat (Mobile/Desktop/Tablet)
+      ],
+      metrics: [
+        { name: 'activeUsers' },   // User Aktif (Realtime)
+        { name: 'screenPageViews' } // Jumlah Views
+      ],
+      limit: 10,                    // Ambil 10 data teratas
+      orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }] // Urutkan dari ActiveUsers tertinggi
+    });
+
+    // FUNGSI UNTUK MEMFORMAT PESAN LAPORAN
+    let reportMessage = `📈 *LAPORAN REALTIME - 30 MENIT TERAKHIR*\n`;
+    reportMessage += `👋 Permintaan dari: ${userName}\n`;
+    reportMessage += `⏰ ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}\n\n`;
+
+    if (realtimeResponse && realtimeResponse.rows && realtimeResponse.rows.length > 0) {
+      reportMessage += `🔝 *10 HALAMAN TERATAS* (berdasarkan User Aktif):\n\n`;
+      
+      realtimeResponse.rows.forEach((row, index) => {
+        const pagePath = row.dimensionValues[0].value || '/';
+        const screenClass = row.dimensionValues[1].value || 'Unknown';
+        const activeUsers = parseInt(row.metricValues[0].value).toLocaleString('id-ID');
+        const views = parseInt(row.metricValues[1].value).toLocaleString('id-ID');
+        
+        reportMessage += `*${index + 1}. ${pagePath}*\n`;
+        reportMessage += `   📱 Perangkat: ${screenClass}\n`;
+        reportMessage += `   👥 User Aktif: ${activeUsers}\n`;
+        reportMessage += `   👁️ Views: ${views}\n\n`;
+      });
+
+      // Tambahkan ringkasan statistik
+      const totalActiveUsers = realtimeResponse.rows.reduce((sum, row) => sum + parseInt(row.metricValues[0].value), 0);
+      const totalViews = realtimeResponse.rows.reduce((sum, row) => sum + parseInt(row.metricValues[1].value), 0);
+      
+      reportMessage += `📊 *RINGKASAN:*\n`;
+      reportMessage += `   • Total User Aktif (30m): ${totalActiveUsers.toLocaleString('id-ID')}\n`;
+      reportMessage += `   • Total Views (30m): ${totalViews.toLocaleString('id-ID')}\n`;
+
+    } else {
+      reportMessage += `❌ *Tidak ada data aktif* dalam 30 menit terakhir.\n`;
+      reportMessage += `Coba lagi nanti atau periksa koneksi GA4.`;
+    }
+
+    // Edit pesan "sedang memproses" dengan hasil laporan
+    await bot.editMessageText(reportMessage, {
+      chat_id: chatId,
+      message_id: processingMsg.message_id,
+      parse_mode: 'Markdown'
+    });
+
+  } catch (error) {
+    console.error('Error dalam perintah /cekvar:', error);
+    
+    // Kirim pesan error ke pengguna
+    await bot.editMessageText(`❌ *Gagal mengambil data realtime.*\n\nError: ${error.message}`, {
+      chat_id: chatId,
+      message_id: processingMsg.message_id,
+      parse_mode: 'Markdown'
+    });
+  }
+});
+
 // 6. KONFIGURASI WEBHOOK DAN SERVER EXPRESS
 // PENTING: Middleware untuk parsing JSON request dari Telegram
 app.use(express.json());
