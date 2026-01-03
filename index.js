@@ -463,10 +463,14 @@ bot.onText(/\/cekvar/, async (msg) => {
       parse_mode: 'Markdown'
     });
 
-  } catch (error) {
-    console.error('Error dalam perintah /cekvar:', error.message);
+} catch (error) {
+    console.error('❌ Error Detail dalam /cekvar:');
+    console.error('Pesan:', error.message);
+    console.error('Kode:', error.code);
+    console.error('Detail:', error.details); // Ini penting!
+    console.error('Metadata:', error.metadata);
     
-    // Kirim pesan error yang aman
+    // Kirim pesan error yang aman ke Telegram
     const errorMessage = `❌ *Gagal mengambil data realtime.*\n\nSilakan coba lagi nanti.`;
     
     if (processingMsg) {
@@ -477,13 +481,12 @@ bot.onText(/\/cekvar/, async (msg) => {
           parse_mode: 'Markdown'
         });
       } catch {
-        // Jika edit gagal, coba kirim pesan baru
         await bot.sendMessage(chatId, errorMessage, { parse_mode: 'Markdown' });
       }
     } else {
       await bot.sendMessage(chatId, errorMessage, { parse_mode: 'Markdown' });
     }
-  }
+}
 });
 
 // 6. Handler untuk new chat members
