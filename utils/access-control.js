@@ -70,7 +70,7 @@ class AccessControl {
    */
   checkRateLimit(userId) {
     const userIdStr = userId.toString();
-    const cooldownMinutes = parseInt(process.env.CEKVAR_COOLDOWN_MINUTES || 30);
+    const cooldownMinutes = parseInt(process.env.CEKVAR_COOLDOWN_MINUTES || 20);
     const maxPerHour = parseInt(process.env.MAX_REQUESTS_PER_HOUR || 10);
     const now = Date.now();
     
@@ -145,7 +145,7 @@ class AccessControl {
       lastRequestTime: lastRequest ? new Date(lastRequest).toLocaleString('id-ID') : 'Never',
       hourlyCount: hourlyStats?.count || 0,
       hourlyReset: hourlyStats ? new Date(hourlyStats.resetTime).toLocaleString('id-ID') : 'N/A',
-      cooldownMinutes: parseInt(process.env.CEKVAR_COOLDOWN_MINUTES || 30),
+      cooldownMinutes: parseInt(process.env.CEKVAR_COOLDOWN_MINUTES || 20),
       maxPerHour: parseInt(process.env.MAX_REQUESTS_PER_HOUR || 10)
     };
   }
