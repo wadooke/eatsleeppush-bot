@@ -64,6 +64,13 @@ function setupCommandHandlers(bot, analyticsDataClient) {
   
   bot.onText(/\/cekvar/, (msg) => 
     userCommands.handleCekvar(bot, msg, analyticsDataClient));
+
+  // TAMBAHKAN COMMAND BARU
+  bot.onText(/\/profil/, (msg) => 
+    userCommands.handleProfil(bot, msg));
+  
+  bot.onText(/\/bantuan/, (msg) => 
+    userCommands.handleBantuan(bot, msg));
   
   // Report commands
   bot.onText(/\/laporan_sekarang/, (msg) => 
