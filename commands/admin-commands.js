@@ -1,7 +1,8 @@
-// commands/admin-commands.js
+// commands/admin-commands.js - PERBAIKAN
 const { addUser } = require('../data/user-database');
 
-function handleDaftar(bot, msg, match) {
+// TAMBAHKAN 'async' DI SINI ↓
+async function handleDaftar(bot, msg, match) {
   try {
     const chatId = msg.chat.id;
     const adminId = msg.from.id;
@@ -9,7 +10,7 @@ function handleDaftar(bot, msg, match) {
 
     // Check admin permissions
     if (!isAdmin(adminId)) {
-      return bot.sendMessage(chatId, '❌ Hanya admin yang dapat menggunakan perintah ini.', {
+      return await bot.sendMessage(chatId, '❌ Hanya admin yang dapat menggunakan perintah ini.', {
         ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
       });
     }
@@ -19,7 +20,7 @@ function handleDaftar(bot, msg, match) {
 
     // Validasi: 4 parameter (id, nama, shortlink, destinationUrl)
     if (args.length < 4) {
-      return bot.sendMessage(chatId, '❌ Format salah! Gunakan: /daftar id_telegram "Nama" "Shortlink" "URL_Tujuan"', {
+      return await bot.sendMessage(chatId, '❌ Format salah! Gunakan: /daftar id_telegram "Nama" "Shortlink" "URL_Tujuan"', {
         ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
       });
     }
@@ -28,21 +29,21 @@ function handleDaftar(bot, msg, match) {
 
     // Validasi telegram ID
     if (!/^\d+$/.test(telegramId)) {
-      return bot.sendMessage(chatId, '❌ ID Telegram harus berupa angka!', {
+      return await bot.sendMessage(chatId, '❌ ID Telegram harus berupa angka!', {
         ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
       });
     }
 
     // Validasi shortlink
     if (!shortLink.startsWith('http')) {
-      return bot.sendMessage(chatId, '❌ Shortlink harus dimulai dengan http:// atau https://', {
+      return await bot.sendMessage(chatId, '❌ Shortlink harus dimulai dengan http:// atau https://', {
         ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
       });
     }
 
     // Validasi URL tujuan
     if (!destinationUrl.startsWith('http')) {
-      return bot.sendMessage(chatId, '❌ URL tujuan harus dimulai dengan http:// atau https://', {
+      return await bot.sendMessage(chatId, '❌ URL tujuan harus dimulai dengan http:// atau https://', {
         ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
       });
     }
@@ -54,7 +55,7 @@ function handleDaftar(bot, msg, match) {
       ga4Path = url.pathname;
       if (!ga4Path || ga4Path === '/') ga4Path = '/';
     } catch (error) {
-      return bot.sendMessage(chatId, '❌ URL tujuan tidak valid. Pastikan format URL benar.', {
+      return await bot.sendMessage(chatId, '❌ URL tujuan tidak valid. Pastikan format URL benar.', {
         ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
       });
     }
@@ -77,7 +78,7 @@ function handleDaftar(bot, msg, match) {
     });
 
     // Send announcement
-    sendAnnouncement(bot, telegramId, userName, shortLink, destinationUrl);
+    await sendAnnouncement(bot, telegramId, userName, shortLink, destinationUrl);
 
   } catch (error) {
     console.error('Error in /daftar:', error.message);
@@ -118,7 +119,8 @@ function parseQuotedArguments(fullArgs) {
   return args;
 }
 
-function sendAnnouncement(bot, telegramId, userName, shortLink, destinationUrl) {
+// Juga tambahkan 'async' di fungsi ini
+async function sendAnnouncement(bot, telegramId, userName, shortLink, destinationUrl) {
   const groupChatId = process.env.TELEGRAM_GROUP_CHAT_ID;
   const pengumumanThreadId = process.env.PENGUMUMAN_THREAD_ID;
   
@@ -138,12 +140,14 @@ function sendAnnouncement(bot, telegramId, userName, shortLink, destinationUrl) 
     ...(pengumumanThreadId && { message_thread_id: parseInt(pengumumanThreadId) })
   };
   
-  bot.sendMessage(groupChatId, pengumumanMessage, pengumumanOptions)
-    .then(() => console.log(`✅ Announcement sent for user: ${userName}`))
-    .catch(error => console.error('Error sending announcement:', error.message));
+  try {
+    await bot.sendMessage(groupChatId, pengumumanMessage, pengumumanOptions);
+    console.log(`✅ Announcement sent for user: ${userName}`);
+  } catch (error) {
+    console.error('Error sending announcement:', error.message);
+  }
 }
 
-// Ekspor handler lainnya tetap sama...
 module.exports = {
   handleDaftar,
   handleLihatUser,
