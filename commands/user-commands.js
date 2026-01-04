@@ -187,13 +187,6 @@ ${rateLimitCheck.message}
     await bot.editMessageText(
       `✅ <b>Permintaan /cekvar berhasil diproses!</b>\n\n` +
       `Laporan Anda sudah tersedia di topik <b>#LAPORAN</b>\n\n` +
-      `<b>📋 Detail:</b>\n` +
-      `• User: ${userName}\n` +
-      `• Artikel: ${userData.articleTitle || 'N/A'}\n` +
-      `• Active Users: ${articleData.activeUsers || 0}\n` +
-      `• Views: ${articleData.pageViews || 0}\n\n` +
-      `<i>⏳ Cooldown: ${rateLimitCheck.cooldown} menit | ` +
-      `Sisa request: ${rateLimitCheck.requestsLeft}</i>`,
       {
         chat_id: chatId,
         message_id: sourceProcessingMsg.message_id,
