@@ -1,6 +1,7 @@
-// commands/user-commands.js - COMPLETE VERSION WITH USER ID PASSING
+// commands/user-commands.js - UPDATE DENGAN ACCESS CONTROL
 const { fetchUserArticleData, formatCustomReport } = require('../utils/ga4-reports');
 const { getUser } = require('../data/user-database');
+const accessControl = require('../utils/access-control');
 
 // Helper function untuk escape HTML
 function escapeHtml(text) {
@@ -14,63 +15,90 @@ function escapeHtml(text) {
 }
 
 /**
- * Handler untuk perintah /userid
- * Menampilkan ID Telegram user
+ * Handler untuk /userid dengan access control
  */
 function handleUserid(bot, msg) {
   try {
     const chatId = msg.chat.id;
+    const threadId = msg.message_thread_id;
     
-    // Cek apakah perintah dari grup yang benar
-    if (String(chatId) !== process.env.TELEGRAM_GROUP_CHAT_ID) {
-      return bot.sendMessage(chatId, 'Perintah ini hanya dapat digunakan di grup EatSleepPush.', {
-        parse_mode: 'HTML'
-      });
+    // Cek apakah user boleh kirim di thread ini
+    if (!accessControl.canUserSendInThread(threadId, false)) {
+      return bot.sendMessage(chatId, 
+        '❌ Perintah ini tidak bisa digunakan di topik ini.\n' +
+        '📌 Silakan gunakan di topik: #DISKUSI-UMUM, #APLIKASI, atau #TUTORIAL.',
+        { parse_mode: 'HTML' }
+      );
     }
 
     const userId = msg.from.id;
     const userName = escapeHtml(msg.from.first_name || 'User');
     const username = msg.from.username ? `(@${msg.from.username})` : '';
     
-    // Format pesan dengan HTML
     const message = `
 👤 <b>ID Telegram Anda</b>
 
 <b>User ID:</b> <code>${userId}</code>
 <b>Nama:</b> ${userName} ${username}
-<b>Username:</b> ${msg.from.username ? `@${msg.from.username}` : 'Tidak ada'}
 
 <i>Salin ID di atas untuk pendaftaran oleh admin.</i>`;
     
     bot.sendMessage(chatId, message, {
       parse_mode: 'HTML',
-      ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+      message_thread_id: threadId
     });
     
-    // Log untuk admin
-    console.log(`📋 /userid - ${userName} (ID: ${userId})`);
-
   } catch (error) {
     console.error('❌ Error in /userid:', error.message);
-    // Jangan crash, cukup log error
   }
 }
 
 /**
- * Handler untuk perintah /cekvar
- * Menampilkan laporan artikel user dari GA4
+ * Handler untuk /cekvar dengan access control & rate limiting
  */
 async function handleCekvar(bot, msg, analyticsDataClient) {
   const chatId = msg.chat.id;
-  const userId = msg.from.id.toString(); // Telegram ID as string
+  const threadId = msg.message_thread_id;
+  const userId = msg.from.id.toString();
   const userName = escapeHtml(msg.from.first_name || 'Sahabat');
-  const username = msg.from.username ? `@${msg.from.username}` : '';
 
-  // Cek apakah perintah dari grup yang benar
-  if (String(chatId) !== process.env.TELEGRAM_GROUP_CHAT_ID) {
-    return bot.sendMessage(chatId, 'Perintah ini hanya dapat digunakan di grup EatSleepPush.', {
-      parse_mode: 'HTML'
+  // 1. CEK APAKAH DI THREAD YANG BENAR (LAPORAN = 3)
+  const laporanThreadId = parseInt(process.env.LAPORAN_THREAD_ID || 3);
+  
+  if (threadId !== laporanThreadId) {
+    // Kirim instruksi untuk pindah ke thread LAPORAN
+    const errorMessage = `
+❌ <b>Perintah /cekvar hanya bisa digunakan di topik #LAPORAN</b>
+
+📌 <b>Silakan ketik /cekvar di:</b>
+#LAPORAN (Thread ID: ${laporanThreadId})
+
+🔒 <i>Topik akses user:</i>
+✅ #DISKUSI-UMUM (ID: 1)
+✅ #APLIKASI (ID: 7) 
+✅ #TUTORIAL (ID: 5)
+
+🚫 <i>Topik khusus bot:</i>
+📊 #LAPORAN (ID: 3) - hanya untuk laporan
+📢 #PENGUMUMAN (ID: 9) - hanya pengumuman
+`;
+    
+    return bot.sendMessage(chatId, errorMessage, {
+      parse_mode: 'HTML',
+      message_thread_id: threadId
     });
+  }
+
+  // 2. CEK RATE LIMIT
+  const rateLimitCheck = accessControl.checkRateLimit(userId);
+  if (!rateLimitCheck.allowed) {
+    return bot.sendMessage(chatId, 
+      `⏳ <b>Rate Limit Terdeteksi</b>\n\n${rateLimitCheck.message}`,
+      {
+        parse_mode: 'HTML',
+        message_thread_id: threadId
+      }
+    );
   }
 
   let processingMsg = null;
@@ -79,63 +107,63 @@ async function handleCekvar(bot, msg, analyticsDataClient) {
     // Kirim pesan "sedang memproses"
     processingMsg = await bot.sendMessage(
       chatId, 
-      `Halo ${userName}... 🔍 Sedang mengambil data artikel Anda dari GA4...\n<i>Mohon tunggu sebentar...</i>`,
+      `Halo ${userName}... 🔍 Sedang mengambil data artikel Anda dari GA4...\n` +
+      `⏳ Cooldown: ${rateLimitCheck.cooldown} menit | ` +
+      `Sisa request: ${rateLimitCheck.requestsLeft}/${process.env.MAX_REQUESTS_PER_HOUR || 10}`,
       {
         parse_mode: 'HTML',
-        ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+        message_thread_id: threadId
       }
     );
 
     // Validasi GA4 client
     if (!analyticsDataClient) {
-      throw new Error('GA4 Client belum diinisialisasi. Silakan coba beberapa saat lagi.');
+      throw new Error('GA4 Client belum diinisialisasi');
     }
 
-    // 1. CEK APAKAH USER TERDAFTAR DI DATABASE
+    // 3. CEK APAKAH USER TERDAFTAR
     const userData = getUser(userId);
     
     if (!userData) {
       throw new Error(
         '❌ Anda belum terdaftar dalam sistem.\n\n' +
         'Silakan minta admin untuk mendaftarkan Anda dengan perintah:\n' +
-        `<code>/daftar ${userId} "Nama Anda" "Shortlink" "URL Artikel"</code>\n\n` +
-        'Gunakan /userid untuk melihat ID Telegram Anda.'
+        `<code>/daftar ${userId} "Nama Anda" "Shortlink" "URL Artikel"</code>`
       );
     }
 
-    // 2. PREPARE USER DATA DENGAN TELEGRAM ID
+    // 4. PREPARE USER DATA DENGAN TELEGRAM ID
     const userDataWithId = {
       ...userData,
-      id: userId, // Pastikan ID Telegram ada di data
-      telegramName: userName,
-      telegramUsername: username
+      id: userId
     };
 
-    console.log(`📊 /cekvar - User: ${userData.nama} (Telegram ID: ${userId})`);
-    console.log(`   Artikel: ${userData.articleTitle || 'N/A'}`);
-    console.log(`   Shortlink: ${userData.shortlink || 'N/A'}`);
+    console.log(`📊 /cekvar - User: ${userData.nama} (Thread: ${threadId}, Rate: ${rateLimitCheck.requestsLeft} left)`);
 
-    // 3. AMBIL DATA GA4 KHUSUS UNTUK ARTIKEL USER INI
+    // 5. AMBIL DATA GA4
     const articleData = await fetchUserArticleData(analyticsDataClient, userDataWithId);
     
-    // 4. FORMAT LAPORAN SESUAI PERMINTAAN
+    // 6. FORMAT LAPORAN
     const reportMessage = formatCustomReport(userDataWithId, articleData);
     
-    // 5. EDIT PESAN PROSES MENJADI HASIL LAPORAN
-    await bot.editMessageText(reportMessage, {
+    // 7. TAMBAHKAN RATE LIMIT INFO DI FOOTER
+    const fullMessage = reportMessage + 
+      `\n\n⏳ <i>Cooldown: ${rateLimitCheck.cooldown} menit | ` +
+      `Request tersisa: ${rateLimitCheck.requestsLeft} | ` +
+      `Reset dalam: ${rateLimitCheck.resetIn} menit</i>`;
+    
+    // 8. EDIT PESAN PROSES MENJADI HASIL LAPORAN
+    await bot.editMessageText(fullMessage, {
       chat_id: chatId,
       message_id: processingMsg.message_id,
       parse_mode: 'HTML'
     });
 
-    // Log sukses
-    console.log(`✅ /cekvar - Success: ${userData.nama}`);
-    console.log(`   Active Users: ${articleData.activeUsers}, Views: ${articleData.pageViews}`);
+    console.log(`✅ /cekvar - Success: ${userData.nama} (Active: ${articleData.activeUsers}, Views: ${articleData.pageViews})`);
 
   } catch (error) {
     console.error('❌ Error dalam /cekvar:', error.message);
     
-    // Format error message dengan HTML
     const errorMessage = `
 ❌ <b>Gagal mengambil data artikel</b>
 
@@ -145,158 +173,102 @@ async function handleCekvar(bot, msg, analyticsDataClient) {
     
     try {
       if (processingMsg) {
-        // Edit pesan processing menjadi error message
         await bot.editMessageText(errorMessage, {
           chat_id: chatId,
           message_id: processingMsg.message_id,
           parse_mode: 'HTML'
         });
       } else {
-        // Kirim pesan error baru
         await bot.sendMessage(chatId, errorMessage, {
           parse_mode: 'HTML',
-          ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+          message_thread_id: threadId
         });
       }
     } catch (telegramError) {
-      // Fallback jika edit message gagal
       console.error('❌ Gagal mengirim error ke Telegram:', telegramError.message);
-      try {
-        await bot.sendMessage(chatId, errorMessage, {
-          parse_mode: 'HTML',
-          ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
-        });
-      } catch (finalError) {
-        console.error('❌ Gagal total mengirim error:', finalError.message);
-      }
     }
   }
 }
 
 /**
- * Handler untuk perintah /profil (optional)
- * Menampilkan profil user
+ * Handler untuk /cekvar_stats (lihat status rate limit)
  */
-async function handleProfil(bot, msg) {
+async function handleCekvarStats(bot, msg) {
   try {
     const chatId = msg.chat.id;
+    const threadId = msg.message_thread_id;
     const userId = msg.from.id.toString();
-    const userName = escapeHtml(msg.from.first_name || 'User');
     
-    // Cek apakah perintah dari grup yang benar
-    if (String(chatId) !== process.env.TELEGRAM_GROUP_CHAT_ID) {
-      return bot.sendMessage(chatId, 'Perintah ini hanya dapat digunakan di grup EatSleepPush.', {
-        parse_mode: 'HTML'
-      });
+    // Cek apakah user boleh akses di thread ini
+    if (!accessControl.canUserSendInThread(threadId, false)) {
+      return;
     }
 
-    // Ambil data user
-    const userData = getUser(userId);
+    const stats = accessControl.getUserStats(userId);
     
-    if (!userData) {
-      return bot.sendMessage(chatId, 
-        `👤 <b>Profil Anda</b>\n\n` +
-        `<b>Nama Telegram:</b> ${userName}\n` +
-        `<b>ID Telegram:</b> <code>${userId}</code>\n\n` +
-        `<i>Status: ❌ Belum terdaftar</i>\n` +
-        `<i>Silakan minta admin untuk mendaftarkan Anda.</i>`,
-        {
-          parse_mode: 'HTML',
-          ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
-        }
-      );
-    }
-
-    // Format tanggal pendaftaran
-    const tanggalDaftar = userData.tanggalDaftar ? 
-      new Date(userData.tanggalDaftar).toLocaleDateString('id-ID', {
-        timeZone: 'Asia/Jakarta',
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      }) : 'Tidak diketahui';
-
-    // Tampilkan profil
     const message = `
-👤 <b>PROFIL USER</b>
+📊 <b>Status Rate Limit /cekvar</b>
 
-<b>Nama:</b> ${escapeHtml(userData.nama)}
-<b>ID Telegram:</b> <code>${userId}</code>
-<b>Shortlink:</b> ${userData.shortlink || 'Tidak ada'}
-<b>Artikel:</b> ${escapeHtml(userData.articleTitle || 'Tidak ada')}
-<b>URL Artikel:</b> ${userData.destinationUrl || 'Tidak ada'}
+<b>User ID:</b> <code>${stats.userId}</b>
+<b>Terakhir request:</b> ${stats.lastRequestTime}
+<b>Request jam ini:</b> ${stats.hourlyCount}/${stats.maxPerHour}
+<b>Reset pada:</b> ${stats.hourlyReset}
+<b>Cooldown:</b> ${stats.cooldownMinutes} menit
 
-<b>Tanggal Daftar:</b> ${tanggalDaftar}
-<b>Status:</b> ✅ <b>Terdaftar</b>
-
-<i>Gunakan /cekvar untuk melihat laporan artikel Anda.</i>`;
-
+<i>Gunakan /cekvar di topik #LAPORAN (ID: 3)</i>`;
+    
     await bot.sendMessage(chatId, message, {
       parse_mode: 'HTML',
-      ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
+      message_thread_id: threadId
     });
 
-    console.log(`📋 /profil - ${userData.nama} (ID: ${userId})`);
-
   } catch (error) {
-    console.error('❌ Error in /profil:', error.message);
-    try {
-      await bot.sendMessage(msg.chat.id, 
-        '❌ <b>Error mengambil profil:</b>\n<code>' + escapeHtml(error.message) + '</code>',
-        { parse_mode: 'HTML' }
-      );
-    } catch {
-      // Ignore jika tidak bisa kirim error
-    }
+    console.error('❌ Error in /cekvar_stats:', error.message);
   }
 }
 
 /**
- * Handler untuk perintah /bantuan
- * Menampilkan panduan penggunaan
+ * Middleware untuk semua commands - cek thread access
  */
-function handleBantuan(bot, msg) {
-  try {
-    const chatId = msg.chat.id;
-    
-    const message = `
-🤖 <b>BANTUAN - EatSleepPush GA4 Bot</b>
-
-<b>Perintah untuk User:</b>
-• /userid - Lihat ID Telegram Anda
-• /cekvar - Laporan artikel Anda (hanya user terdaftar)
-• /profil - Lihat profil Anda
-• /bantuan - Tampilkan panduan ini
-
-<b>Perintah untuk Admin:</b>
-• /daftar id "Nama" "Shortlink" "URL"
-• /lihat_user - Lihat semua user terdaftar
-• /hapus_user id - Hapus user dari sistem
-• /laporan_sekarang - Kirim laporan manual
-• /debug_ga4 - Test koneksi GA4
-
-<b>Cara Mendaftar:</b>
-1. Ketik /userid untuk melihat ID Telegram
-2. Minta admin mendaftarkan dengan:
-   <code>/daftar [ID] "[Nama]" "[Shortlink]" "[URL Artikel]"</code>
-
-<i>Bot ini khusus untuk grup EatSleepPush.</i>`;
-
-    bot.sendMessage(chatId, message, {
-      parse_mode: 'HTML',
-      ...(msg.message_thread_id && { message_thread_id: msg.message_thread_id })
-    });
-
-  } catch (error) {
-    console.error('❌ Error in /bantuan:', error.message);
+function checkThreadAccess(bot, msg, next) {
+  const threadId = msg.message_thread_id;
+  const command = msg.text?.split(' ')[0];
+  
+  // Skip untuk bot sendiri atau tanpa thread ID
+  if (!threadId || msg.from?.is_bot) {
+    return next();
   }
+  
+  // Cek apakah user boleh kirim di thread ini
+  if (!accessControl.canUserSendInThread(threadId, false)) {
+    const allowedThreads = [...accessControl.allowedThreads].join(', ');
+    
+    bot.sendMessage(msg.chat.id,
+      `❌ <b>Akses Ditolak</b>\n\n` +
+      `Anda tidak bisa mengirim pesan di topik ini.\n\n` +
+      `📌 <b>Topik yang diizinkan:</b>\n` +
+      `#DISKUSI-UMUM (ID: 1)\n` +
+      `#APLIKASI (ID: 7)\n` +
+      `#TUTORIAL (ID: 5)\n\n` +
+      `🔒 <b>Topik khusus bot:</b>\n` +
+      `#LAPORAN (ID: 3) - hanya untuk laporan\n` +
+      `#PENGUMUMAN (ID: 9) - hanya pengumuman`,
+      {
+        parse_mode: 'HTML',
+        message_thread_id: threadId
+      }
+    ).catch(() => {}); // Ignore jika gagal kirim
+    
+    return; // Stop eksekusi command
+  }
+  
+  next();
 }
 
-// Export semua handlers
 module.exports = {
   handleUserid,
   handleCekvar,
-  handleProfil,
-  handleBantuan
+  handleCekvarStats,
+  checkThreadAccess,
+  escapeHtml
 };
