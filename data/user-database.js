@@ -1,51 +1,44 @@
-// data/user-database.js
+// data/user-database.js - Tambah logging
 const userDatabase = new Map();
 
 function setupUserDatabase() {
   console.log('💾 Initializing user database...');
   console.log(`   Storage: In-memory (${userDatabase.size} users)`);
+  
+  // Tampilkan semua user saat startup (untuk debug)
+  if (userDatabase.size > 0) {
+    console.log('   Existing users on startup:');
+    for (const [id, user] of userDatabase) {
+      console.log(`     - ${user.nama} (ID: ${id})`);
+    }
+  }
 }
 
 function addUser(telegramId, userData) {
-  userDatabase.set(telegramId.toString(), {
+  const userWithId = {
     ...userData,
-    id: telegramId, // Tambahkan ID ke data user
+    id: telegramId, // Pastikan ID ada di data
     tanggalDaftar: new Date().toISOString()
-  });
-  console.log(`   ✅ User added: ${userData.nama} (ID: ${telegramId})`);
-  return userDatabase.get(telegramId.toString());
-}
-
-function getUser(telegramId) {
-  return userDatabase.get(telegramId.toString());
+  };
+  
+  userDatabase.set(telegramId.toString(), userWithId);
+  console.log(`✅ User ADDED to database: ${userData.nama} (ID: ${telegramId})`);
+  console.log(`   Total users now: ${userDatabase.size}`);
+  
+  // Debug: Tampilkan semua user setelah penambahan
+  console.log('   Current database state:');
+  for (const [id, user] of userDatabase) {
+    console.log(`     - ${user.nama} (${id})`);
+  }
+  
+  return userWithId;
 }
 
 function getAllUsers() {
+  console.log(`📋 Getting ALL users: ${userDatabase.size} found`);
   const users = [];
   for (const [id, data] of userDatabase) {
     users.push({ id, ...data });
   }
   return users;
 }
-
-function deleteUser(telegramId) {
-  const user = getUser(telegramId);
-  if (user) {
-    userDatabase.delete(telegramId.toString());
-    console.log(`   🗑️ User deleted: ${user.nama} (ID: ${telegramId})`);
-  }
-  return user;
-}
-
-function getUserCount() {
-  return userDatabase.size;
-}
-
-module.exports = {
-  setupUserDatabase,
-  addUser,
-  getUser,
-  getAllUsers,
-  deleteUser,
-  getUserCount
-};
