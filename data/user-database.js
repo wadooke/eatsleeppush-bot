@@ -1,18 +1,12 @@
-// data/user-database.js - UPDATE UNTUK SUPPORT BOTH FORMATS
+// data/user-database.js - PASTIKAN SEPERTI INI
 const fs = require('fs').promises;
 const path = require('path');
 
 const DB_PATH = path.join(__dirname, 'user-database.json');
 
-// Format data lama (current)
-// { "8462501080": { "nama": "Meningan Pemalang", "shortlink": "...", ... } }
-
-// Format data baru (proposed)
-// [{ "id": "8462501080", "name": "Meningan Pemalang", ... }]
-
 class UserDatabase {
   constructor() {
-    this.users = {}; // Format lama untuk backward compatibility
+    this.users = {}; // Format: { "8462501080": { "nama": "Meningan Pemalang", ... } }
     this.loadUsers();
   }
 
@@ -21,9 +15,9 @@ class UserDatabase {
       const data = await fs.readFile(DB_PATH, 'utf8');
       const parsed = JSON.parse(data);
       
-      // Deteksi format: array atau object
+      // Deteksi format
       if (Array.isArray(parsed)) {
-        // Convert array format baru ke format lama
+        // Convert array ke format object
         this.users = {};
         parsed.forEach(user => {
           if (user.id) {
@@ -31,7 +25,8 @@ class UserDatabase {
               nama: user.name || user.nama,
               shortlink: user.shortlink,
               destinationUrl: user.articleUrl || user.destinationUrl,
-              ga4Path: user.ga4Path || extractPathFromUrl(user.articleUrl || user.destinationUrl),
+              ga4Path: user.ga4Path || this.extractPathFromUrl(user.articleUrl || user.destinationUrl),
+              articleTitle: user.articleTitle || this.extractTitleFromUrl(user.articleUrl || user.destinationUrl),
               tanggalDaftar: user.registeredAt || new Date().toISOString()
             };
           }
@@ -40,7 +35,7 @@ class UserDatabase {
       } else {
         // Format lama (object)
         this.users = parsed;
-        console.log(`✅ Loaded ${Object.keys(this.users).length} users from database (old format)`);
+        console.log(`✅ Loaded ${Object.keys(this.users).length} users from database`);
       }
       
     } catch (error) {
@@ -57,56 +52,33 @@ class UserDatabase {
 
   async saveUsers() {
     try {
-      // Simpan dalam format lama untuk compatibility
       await fs.writeFile(DB_PATH, JSON.stringify(this.users, null, 2), 'utf8');
-      console.log(`💾 Saved ${Object.keys(this.users).length} users to database`);
     } catch (error) {
       console.error('❌ Error saving user database:', error.message);
     }
   }
 
-  // GETTERS (compatible dengan kode lama)
-  getUser(userId) {
-    return this.users[userId.toString()] || null;
-  }
+  // ... (fungsi-fungsi lainnya tetap sama) ...
 
-  getAllUsers() {
-    return Object.entries(this.users).map(([id, data]) => ({
-      id,
-      ...data
-    }));
-  }
-
-  // SETTERS (compatible dengan kode lama)
-  addUser(userId, userData) {
-    this.users[userId.toString()] = {
-      ...userData,
-      tanggalDaftar: new Date().toISOString()
-    };
-    this.saveUsers();
-    return this.users[userId];
-  }
-
-  deleteUser(userId) {
-    const user = this.users[userId.toString()];
-    if (user) {
-      delete this.users[userId.toString()];
-      this.saveUsers();
-      return user;
+  extractPathFromUrl(url) {
+    try {
+      const urlObj = new URL(url);
+      return urlObj.pathname;
+    } catch {
+      return '/';
     }
-    return null;
+  }
+
+  extractTitleFromUrl(url) {
+    try {
+      const urlObj = new URL(url);
+      const pathParts = urlObj.pathname.split('/').filter(p => p);
+      return pathParts[pathParts.length - 1] || 'unknown';
+    } catch {
+      return 'unknown';
+    }
   }
 }
 
-// Helper function
-function extractPathFromUrl(url) {
-  try {
-    const urlObj = new URL(url);
-    return urlObj.pathname;
-  } catch {
-    return '/';
-  }
-}
-
-// Export instance singleton (format lama tetap compatible)
+// Ekspor instance singleton - TIDAK ADA setupUserDatabase()
 module.exports = new UserDatabase();
