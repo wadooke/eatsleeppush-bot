@@ -1,100 +1,92 @@
-// data/user-database.js - DENGAN EKSPOR YANG BENAR
-const fs = require('fs');
+// data/user-database.js
+const fs = require('fs').promises;
 const path = require('path');
 
-const DATA_FILE = path.join(__dirname, 'users.json');
-let userDatabase = new Map();
+const DB_PATH = path.join(__dirname, 'user-database.json');
 
-function setupUserDatabase() {
-  console.log('💾 Initializing user database...');
-  
-  try {
-    // Coba load dari file
-    if (fs.existsSync(DATA_FILE)) {
-      const data = fs.readFileSync(DATA_FILE, 'utf8');
-      const users = JSON.parse(data);
-      
-      // Load ke Map
-      for (const user of users) {
-        userDatabase.set(user.id.toString(), user);
+class UserDatabase {
+  constructor() {
+    this.users = [];
+    this.loadUsers();
+  }
+
+  async loadUsers() {
+    try {
+      const data = await fs.readFile(DB_PATH, 'utf8');
+      this.users = JSON.parse(data);
+      console.log(`✅ Loaded ${this.users.length} users from database`);
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        // File tidak ada, buat baru
+        console.log('📁 Creating new user database...');
+        this.users = [];
+        await this.saveUsers();
+      } else {
+        console.error('❌ Error loading user database:', error.message);
+        this.users = [];
       }
-      
-      console.log(`   ✅ Loaded ${userDatabase.size} users from file`);
-      console.log('   Users:', Array.from(userDatabase.keys()));
-    } else {
-      console.log('   ℹ️ No existing data file, starting fresh');
-      // Buat file kosong
-      fs.writeFileSync(DATA_FILE, JSON.stringify([], null, 2));
     }
-  } catch (error) {
-    console.error('❌ Error loading database:', error.message);
-    console.log('   Starting with empty database');
   }
-}
 
-function addUser(telegramId, userData) {
-  const userWithId = {
-    ...userData,
-    id: telegramId.toString(),
-    tanggalDaftar: new Date().toISOString()
-  };
-  
-  userDatabase.set(telegramId.toString(), userWithId);
-  saveToFile();
-  
-  console.log(`✅ User ADDED: ${userData.nama} (ID: ${telegramId})`);
-  console.log(`   Total users: ${userDatabase.size}`);
-  return userWithId;
-}
-
-function getUser(telegramId) {
-  return userDatabase.get(telegramId.toString());
-}
-
-function getAllUsers() {
-  const users = [];
-  for (const [id, data] of userDatabase) {
-    users.push({ id, ...data });
+  async saveUsers() {
+    try {
+      await fs.writeFile(DB_PATH, JSON.stringify(this.users, null, 2), 'utf8');
+      console.log(`💾 Saved ${this.users.length} users to database`);
+    } catch (error) {
+      console.error('❌ Error saving user database:', error.message);
+    }
   }
-  console.log(`📋 getAllUsers: ${users.length} users found`);
-  return users;
-}
 
-function deleteUser(telegramId) {
-  const user = getUser(telegramId);
-  if (user) {
-    userDatabase.delete(telegramId.toString());
-    saveToFile();
-    console.log(`🗑️ User DELETED: ${user.nama} (ID: ${telegramId})`);
+  getUser(userId) {
+    return this.users.find(user => user.id === userId.toString());
   }
-  return user;
-}
 
-function getUserCount() {
-  return userDatabase.size;
-}
+  getAllUsers() {
+    return [...this.users];
+  }
 
-function saveToFile() {
-  try {
-    const usersArray = [];
-    for (const [id, user] of userDatabase) {
-      usersArray.push(user);
+  async addUser(userData) {
+    // Pastikan tidak ada duplikat
+    const existingIndex = this.users.findIndex(u => u.id === userData.id);
+    
+    if (existingIndex >= 0) {
+      // Update user yang sudah ada
+      this.users[existingIndex] = { ...this.users[existingIndex], ...userData };
+    } else {
+      // Tambah user baru
+      this.users.push({
+        ...userData,
+        registeredAt: new Date().toISOString(),
+        status: 'active'
+      });
     }
     
-    fs.writeFileSync(DATA_FILE, JSON.stringify(usersArray, null, 2));
-    console.log(`💾 Database saved: ${usersArray.length} users`);
-  } catch (error) {
-    console.error('❌ Error saving database:', error.message);
+    await this.saveUsers();
+    return userData;
+  }
+
+  async deleteUser(userId) {
+    const initialLength = this.users.length;
+    this.users = this.users.filter(user => user.id !== userId.toString());
+    
+    if (this.users.length < initialLength) {
+      await this.saveUsers();
+      return true; // Berhasil dihapus
+    }
+    return false; // User tidak ditemukan
+  }
+
+  async updateUser(userId, updates) {
+    const userIndex = this.users.findIndex(u => u.id === userId.toString());
+    
+    if (userIndex >= 0) {
+      this.users[userIndex] = { ...this.users[userIndex], ...updates };
+      await this.saveUsers();
+      return this.users[userIndex];
+    }
+    return null;
   }
 }
 
-// EKSPOR SEMUA FUNGSI YANG DIPERLUKAN
-module.exports = {
-  setupUserDatabase,
-  addUser,
-  getUser,
-  getAllUsers,
-  deleteUser,
-  getUserCount,
-  saveToFile  // tambahkan ini jika perlu
-};
+// Ekspor instance singleton
+module.exports = new UserDatabase();
