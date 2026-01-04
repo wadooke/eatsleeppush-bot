@@ -1,5 +1,5 @@
-// commands/user-commands.js - User command handlers
-const { fetchGA4RealtimeData } = require('../utils/ga4-reports');
+// commands/user-commands.js
+const { fetchUserArticleData, formatCustomReport } = require('../utils/ga4-reports');
 
 function handleUserid(bot, msg) {
   try {
@@ -24,6 +24,7 @@ function handleUserid(bot, msg) {
 
 async function handleCekvar(bot, msg, analyticsDataClient) {
   const chatId = msg.chat.id;
+  const userId = msg.from.id.toString();
   const userName = msg.from.first_name || 'Sahabat';
 
   // Check if command is from correct group
@@ -34,14 +35,25 @@ async function handleCekvar(bot, msg, analyticsDataClient) {
   let processingMsg;
   try {
     // Send processing message
-    processingMsg = await bot.sendMessage(chatId, `Halo ${userName}... 🔍 Sedang mengambil data realtime dari GA4...`);
+    processingMsg = await bot.sendMessage(chatId, `Halo ${userName}... 🔍 Sedang mengambil data artikel Anda dari GA4...`);
 
     if (!analyticsDataClient) {
       throw new Error('GA4 Client belum diinisialisasi');
     }
 
-    // Fetch GA4 realtime data
-    const reportMessage = await fetchGA4RealtimeData(analyticsDataClient, userName);
+    // 1. CEK APAKAH USER TERDAFTAR
+    const { getUser } = require('../data/user-database');
+    const userData = getUser(userId);
+    
+    if (!userData) {
+      throw new Error('Anda belum terdaftar. Silakan minta admin mendaftarkan Anda dengan /daftar');
+    }
+
+    // 2. AMBIL DATA GA4 KHUSUS UNTUK ARTIKEL USER INI
+    const articleData = await fetchUserArticleData(analyticsDataClient, userData);
+    
+    // 3. FORMAT LAPORAN SESUAI PERMINTAAN
+    const reportMessage = formatCustomReport(userData, articleData);
     
     // Edit message with report
     await bot.editMessageText(reportMessage, {
@@ -51,14 +63,10 @@ async function handleCekvar(bot, msg, analyticsDataClient) {
     });
 
   } catch (error) {
-    console.error('❌ Error Detail dalam /cekvar:');
-    console.error('Pesan:', error.message);
-    console.error('Kode:', error.code);
-    console.error('Detail:', error.details);
-    console.error('Metadata:', error.metadata);
+    console.error('❌ Error dalam /cekvar:', error.message);
     
     // Send error message to Telegram
-    const errorMessage = `❌ *Gagal mengambil data realtime.*\n\nSilakan coba lagi nanti.`;
+    const errorMessage = `❌ *Gagal mengambil data artikel:*\n${error.message}`;
     
     if (processingMsg) {
       try {
