@@ -29,14 +29,13 @@ function initializeTelegramBot(analyticsDataClient) {
   // Test koneksi bot
   bot.getMe()
     .then(me => {
-      console.log(`   Bot: @${me.username} (${me.first_name})`);
+      console.log(`✅ Bot connected: @${me.username}`);
     })
     .catch(error => {
-      console.error(`   ❌ Cannot connect to Telegram API: ${error.message}`);
+      console.error(`❌ Cannot connect to Telegram API: ${error.message}`);
     });
   
   // Setup command handlers
-  console.log('   Setting up command handlers...');
   setupCommandHandlers(bot, analyticsDataClient);
   
   // Setup webhook (hanya sekali)
@@ -77,7 +76,7 @@ function setupCommandHandlers(bot, analyticsDataClient) {
   bot.on('new_chat_members', (msg) => 
     adminCommands.handleNewChatMembers(bot, msg));
   
-  // Error handler untuk semua commands
+  // Error handlers
   bot.on('polling_error', (error) => {
     console.error('❌ Telegram polling error:', error.message);
   });
@@ -85,19 +84,15 @@ function setupCommandHandlers(bot, analyticsDataClient) {
   bot.on('webhook_error', (error) => {
     console.error('❌ Telegram webhook error:', error.message);
   });
-  
-  console.log(`   ✅ ${Object.keys(bot._events).length} handlers registered`);
 }
 
 async function setupWebhook(bot) {
-  console.log('🔗 Setting up Telegram webhook...');
+  console.log('🔗 Setting up webhook...');
   
   const webhookUrl = process.env.RAILWAY_STATIC_URL || process.env.RENDER_EXTERNAL_URL;
   
   if (!webhookUrl) {
-    console.error('❌ ERROR: No webhook URL found in environment variables');
-    console.error('   Please set RAILWAY_STATIC_URL or RENDER_EXTERNAL_URL in Railway');
-    console.error('   Example: https://eatsleeppush-bot-production.up.railway.app');
+    console.error('❌ No webhook URL found in environment');
     webhookSetupSuccess = false;
     return false;
   }
@@ -105,86 +100,61 @@ async function setupWebhook(bot) {
   // Format URL dengan benar
   let fullWebhookUrl;
   if (webhookUrl.includes('://')) {
-    // URL sudah lengkap
     fullWebhookUrl = `${webhookUrl.replace(/\/$/, '')}/telegram-webhook`;
   } else {
-    // Hanya domain, tambahkan https://
     fullWebhookUrl = `https://${webhookUrl.replace(/\/$/, '')}/telegram-webhook`;
   }
   
-  console.log(`   Webhook target: ${fullWebhookUrl}`);
-  console.log('   Checking current webhook status...');
+  console.log(`📝 Target: ${fullWebhookUrl}`);
   
   try {
     // 1. Cek status webhook saat ini
     const currentInfo = await bot.getWebHookInfo();
-    console.log(`   Current webhook: ${currentInfo.url || 'None'}`);
-    console.log(`   Pending updates: ${currentInfo.pending_update_count}`);
     
     // 2. Hanya set webhook jika URL berbeda
     if (currentInfo.url === fullWebhookUrl) {
-      console.log('   ✅ Webhook already correctly set');
+      console.log('✅ Webhook already set');
       webhookSetupSuccess = true;
-      
-      // Kirim startup message
       sendStartupMessage(bot, true);
       return true;
     }
     
     // 3. Hapus webhook lama jika ada
     if (currentInfo.url) {
-      console.log(`   Removing old webhook: ${currentInfo.url}`);
+      console.log('🗑️  Removing old webhook');
       await bot.deleteWebHook();
-      console.log('   ✅ Old webhook removed');
-      // Tunggu sebentar
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
     // 4. Set webhook baru
-    console.log('   Setting new webhook...');
-    const result = await bot.setWebHook(fullWebhookUrl, {
+    console.log('🔄 Setting new webhook...');
+    await bot.setWebHook(fullWebhookUrl, {
       max_connections: 40,
       allowed_updates: ['message', 'chat_member'],
-      drop_pending_updates: true // Hapus pending updates lama
+      drop_pending_updates: true
     });
     
-    console.log(`✅ Webhook successfully set to: ${fullWebhookUrl}`);
+    console.log('✅ Webhook set successfully');
     
     // 5. Verifikasi
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Tunggu 2 detik
+    await new Promise(resolve => setTimeout(resolve, 2000));
     const newInfo = await bot.getWebHookInfo();
     console.log(`ℹ️  Verified: ${newInfo.url ? 'ACTIVE' : 'INACTIVE'}`);
-    console.log(`   Pending updates: ${newInfo.pending_update_count}`);
     
     webhookSetupSuccess = true;
-    
-    // 6. Kirim startup message
     sendStartupMessage(bot, true);
-    
     return true;
     
   } catch (error) {
-    console.error('❌ ERROR setting webhook:');
-    console.error('   Message:', error.message);
+    console.error('❌ Error setting webhook:', error.message);
     
-    // Log detail error tanpa menyebabkan loop
-    if (error.response) {
-      console.error('   Status Code:', error.response.statusCode);
-      if (error.response.body) {
-        try {
-          const errorBody = JSON.parse(error.response.body);
-          console.error('   Telegram API Error:', errorBody.description);
-        } catch (e) {
-          console.error('   Raw Error:', error.response.body);
-        }
-      }
+    // Log detail error tanpa terlalu verbose
+    if (error.response && error.response.statusCode) {
+      console.error(`📊 Status: ${error.response.statusCode}`);
     }
     
     webhookSetupSuccess = false;
-    
-    // Fallback: Kirim message bahwa bot berjalan tanpa webhook
     sendStartupMessage(bot, false);
-    
     return false;
   }
 }
@@ -194,7 +164,6 @@ async function sendStartupMessage(bot, webhookActive) {
   const laporanThreadId = process.env.LAPORAN_THREAD_ID;
   
   if (!groupChatId) {
-    console.log('⚠️  No group chat ID, skipping startup message');
     return;
   }
   
@@ -220,7 +189,6 @@ async function sendStartupMessage(bot, webhookActive) {
     };
     
     await bot.sendMessage(groupChatId, message, options);
-    console.log(`✅ Startup message sent (webhook: ${webhookActive ? 'active' : 'limited'})`);
     
   } catch (error) {
     console.error('❌ Failed to send startup message:', error.message);
