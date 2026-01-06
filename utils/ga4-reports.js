@@ -102,154 +102,119 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
     const pagePath = userData.ga4Path || userData.destinationUrl?.match(/https?:\/\/[^\/]+(\/.*)/)?.[1] || '/';
     const userName = userData.nama || userData.name || 'User';
 
-    console.log(`🔍 [GA4 Query KOMBINASI] untuk: ${userName}`);
+    console.log(`🔍 [GA4 Query KOMBINASI - FIXED] untuk: ${userName}`);
     console.log(`   Path: ${pagePath}`);
 
     if (!pagePath || pagePath === '/') {
       throw new Error('Page path tidak valid');
     }
 
-    // 1. QUERY REALTIME YANG BENAR
+    // ============================================
+    // 1. QUERY REALTIME (Active Users & Views - 30m terakhir) - DIPERBAIKI
+    // ============================================
     let realtimeData = { activeUsers: 0, pageViews: 0 };
     
     try {
-      console.log(`   📡 Mengambil data realtime...`);
+      console.log(`   📡 Mengambil data realtime (dengan pagePath)...`);
       const [realtimeResponse] = await analyticsDataClient.runRealtimeReport({
         property: `properties/${process.env.GA4_PROPERTY_ID}`,
-        dimensions: [{ name: 'unifiedScreenName' }], // Dimensi yang valid untuk realtime
+        dimensions: [{ name: 'pagePath' }], // Filter berdasarkan pagePath spesifik
         metrics: [
-          { name: 'activeUsers' }, // Hanya ini yang tersedia di realtime
-          { name: 'screenPageViews' } // TIDAK ADA di realtime API!
+          { name: 'activeUsers' },
+          { name: 'screenPageViews' } // Metrik ini TERSEDIA untuk real-time[citation:1][citation:4]
         ],
+        dimensionFilter: {
+          filter: {
+            fieldName: 'pagePath',
+            stringFilter: {
+              matchType: 'EXACT',
+              value: pagePath,
+              caseSensitive: false
+            }
+          }
+        },
         limit: 1
       });
 
       if (realtimeResponse?.rows?.[0]) {
         const row = realtimeResponse.rows[0];
         realtimeData.activeUsers = parseInt(row.metricValues[0]?.value) || 0;
-        // screenPageViews tidak tersedia di realtime, jadi tetap 0
-        console.log(`   ✅ Data realtime: ${realtimeData.activeUsers} active users`);
+        realtimeData.pageViews = parseInt(row.metricValues[1]?.value) || 0;
+        console.log(`   ✅ Data realtime: ${realtimeData.activeUsers} active users, ${realtimeData.pageViews} views`);
       } else {
-        console.log(`   ⚠️  Tidak ada data realtime untuk path ini`);
+        console.log(`   ⚠️  Tidak ada data realtime untuk path ini dalam 30 menit terakhir`);
       }
       
     } catch (realtimeError) {
       console.error('   ⚠️  Gagal ambil data realtime:', realtimeError.message);
-      if (realtimeError.details) {
-        console.error('   🔍 Error Details:', JSON.stringify(realtimeError.details));
-      }
+      // Tetap lanjut ke query revenue
     }
 
-// ---- 2. QUERY STANDARD "KEMARIN" (SEDERHANA & DIJAMIN BERJALAN) ----
-let yesterdayData = { adRevenue: 0, adClicks: 0, adImpressions: 0, activeUsers: 0, pageViews: 0 };
-
-try {
-    console.log(`   📅 Mengambil data kemarin (revenue)...`);
-    // PERTAMA: Query tanpa filter path, hanya untuk testing koneksi
-    const [testResponse] = await analyticsDataClient.runReport({
+    // ============================================
+    // 2. QUERY STANDARD "KEMARIN" (Revenue) - TETAP
+    // ============================================
+    let yesterdayData = { adRevenue: 0, adClicks: 0, adImpressions: 0 };
+    
+    try {
+      console.log(`   📅 Mengambil data kemarin (revenue)...`);
+      const [standardResponse] = await analyticsDataClient.runReport({
         property: `properties/${process.env.GA4_PROPERTY_ID}`,
-        dateRanges: [{ startDate: '2026-01-05', endDate: '2026-01-05' }],
-        dimensions: [{ name: 'pageTitle' }], // Ganti ke dimensi yang lebih umum
-        metrics: [
-            { name: 'activeUsers' },
-            { name: 'screenPageViews' }
-            // SEMENTARA HAPUS dulu metrik publisherAd* untuk testing
-        ],
-        limit: 5 // Ambil 5 data teratas saja
-    });
-
-    console.log(`   🔍 Hasil Test Query (tanpa filter):`, testResponse?.rows?.length || 0, 'baris data');
-    if (testResponse?.rows) {
-        testResponse.rows.forEach((row, i) => {
-            console.log(`      ${i+1}. ${row.dimensionValues[0]?.value}: ${row.metricValues[0]?.value} users`);
-        });
-    }
-
-    // KEDUA: Jika test berhasil, coba query dengan filter path TAPI tanpa metrik revenue
-    const [standardResponse] = await analyticsDataClient.runReport({
-        property: `properties/${process.env.GA4_PROPERTY_ID}`,
-        dateRanges: [{ startDate: '2026-01-05', endDate: '2026-01-05' }],
+        dateRanges: [{ startDate: 'yesterday', endDate: 'yesterday' }],
         dimensions: [{ name: 'pagePath' }],
         metrics: [
-            { name: 'activeUsers' },
-            { name: 'screenPageViews' }
-            // BELUM pakai metrik revenue dulu
+          { name: 'publisherAdRevenue' },
+          { name: 'publisherAdClicks' },
+          { name: 'publisherAdImpressions' }
         ],
         dimensionFilter: {
-            filter: { // Kembali ke struktur filter sederhana
-                fieldName: 'pagePath',
-                stringFilter: {
-                    matchType: 'EXACT',
-                    value: pagePath,
-                    caseSensitive: false
-                }
+          filter: {
+            fieldName: 'pagePath',
+            stringFilter: {
+              matchType: 'EXACT',
+              value: pagePath,
+              caseSensitive: false
             }
+          }
         },
         limit: 1
-    });
+      });
 
-    if (standardResponse?.rows?.[0]) {
+      if (standardResponse?.rows?.[0]) {
         const row = standardResponse.rows[0];
-        yesterdayData.activeUsers = parseInt(row.metricValues[0]?.value) || 0;
-        yesterdayData.pageViews = parseInt(row.metricValues[1]?.value) || 0;
-        console.log(`   ✅ Query dengan filter BERHASIL: ${yesterdayData.activeUsers} users, ${yesterdayData.pageViews} views`);
-        
-        // KETIGA: Jika berhasil, baru coba query khusus untuk revenue
-        try {
-            const [revenueResponse] = await analyticsDataClient.runReport({
-                property: `properties/${process.env.GA4_PROPERTY_ID}`,
-                dateRanges: [{ startDate: '2026-01-05', endDate: '2026-01-05' }],
-                metrics: [
-                    { name: 'publisherAdRevenue' },
-                    { name: 'publisherAdClicks' },
-                    { name: 'publisherAdImpressions' }
-                ],
-                // Query revenue TANPA filter dulu, untuk lihat apakah metriknya ada
-                limit: 1
-            });
-            
-            if (revenueResponse?.rows?.[0]) {
-                const row = revenueResponse.rows[0];
-                yesterdayData.adRevenue = parseFloat(row.metricValues[0]?.value) || 0;
-                yesterdayData.adClicks = parseInt(row.metricValues[1]?.value) || 0;
-                yesterdayData.adImpressions = parseInt(row.metricValues[2]?.value) || 0;
-                console.log(`   💰 Data Revenue DITEMUKAN: ${yesterdayData.adRevenue}`);
-            } else {
-                console.log(`   ⚠️  Metrik revenue ada, tapi tidak ada data untuk tanggal tersebut`);
-            }
-            
-        } catch (revenueError) {
-            console.error('   ⚠️  Metrik publisherAdRevenue mungkin tidak tersedia:', revenueError.message);
-            // Jangan throw error, biarkan revenue tetap 0
-        }
-        
-    } else {
-        console.log(`   ⚠️  Tidak ada data kemarin untuk path ini (${pagePath})`);
+        yesterdayData.adRevenue = parseFloat(row.metricValues[0]?.value) || 0;
+        yesterdayData.adClicks = parseInt(row.metricValues[1]?.value) || 0;
+        yesterdayData.adImpressions = parseInt(row.metricValues[2]?.value) || 0;
+        console.log(`   ✅ Data kemarin: Revenue: ${yesterdayData.adRevenue}`);
+      } else {
+        console.log(`   ⚠️  Tidak ada data revenue kemarin untuk path ini`);
+      }
+      
+    } catch (standardError) {
+      console.error('   ❌ Gagal ambil data kemarin:', standardError.message);
+      // Jangan throw error, biarkan revenue tetap 0 untuk sementara
     }
-    
-} catch (standardError) {
-    console.error('   ❌ Gagal total query kemarin:', standardError.message);
-    if (standardError.details) {
-        console.error('   🔍 Error Details:', JSON.stringify(standardError.details));
-    }
-    throw new Error('Gagal mengambil data dari GA4.');
-}
 
-    // 3. GABUNGKAN HASIL
+    // ============================================
+    // 3. GABUNGKAN HASIL (STRUKTUR BARU)
+    // ============================================
     return {
-      activeUsers: realtimeData.activeUsers,
-      pageViews: yesterdayData.pageViews || 0, // Ambil dari query standard, bukan realtime
-      adRevenue: yesterdayData.adRevenue,
-      adClicks: yesterdayData.adClicks,
-      adImpressions: yesterdayData.adImpressions,
+      // Data utama untuk laporan
+      activeUsers: realtimeData.activeUsers,      // Dari realtime (30m terakhir)
+      pageViews: realtimeData.pageViews,          // Dari realtime (30m terakhir)
+      adRevenue: yesterdayData.adRevenue,         // Dari kemarin
+      adClicks: yesterdayData.adClicks,           // Dari kemarin
+      adImpressions: yesterdayData.adImpressions, // Dari kemarin
+      
+      // Data tambahan untuk logging dan debugging
       dataDate: getTodayDate(),
-      yesterdayDate: '2026-01-05',
-      note: 'Active Users: data 30 menit terakhir. Views & Revenue: data hari sebelumnya.',
+      yesterdayDate: getYesterdayDate(),
+      note: 'Active Users & Views: data 30 menit terakhir. Revenue: data hari kemarin yang telah diproses.',
       success: true
     };
 
   } catch (error) {
     console.error('❌ Error utama fetchUserArticleData:', error.message);
+    
     return {
       activeUsers: 0,
       pageViews: 0,
