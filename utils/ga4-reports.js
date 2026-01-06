@@ -43,6 +43,20 @@ function getTanggalIndo() {
   });
 }
 
+// Helper untuk format currency IDR
+function formatCurrencyIDR(amount) {
+  if (!amount && amount !== 0) return 'Rp 0';
+  
+  const numericAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+  
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(numericAmount);
+}
+
 /**
  * Format link untuk tampil sebagai teks (bukan hyperlink)
  */
