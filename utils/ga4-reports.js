@@ -194,43 +194,31 @@ function formatCustomReport(userData, articleData) {
   const userName = escapeHtml(userData.nama || userData.name || 'User');
   const userId = userData.id || 'N/A';
   
-  // Format tanggal Indonesia lengkap
-  const today = new Date();
-  const tanggalIndo = today.toLocaleDateString('id-ID', {
+  const tanggalIndo = new Date().toLocaleDateString('id-ID', {
     timeZone: 'Asia/Jakarta',
-    weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric'
   });
   
-  // Shortlink: format sebagai teks (bukan link)
   const shortlink = userData.shortlink || '';
   let linkDisplay = 'Tidak ada';
-  if (shortlink) {
-    // Hapus https:// untuk display lebih clean
-    linkDisplay = shortlink.replace(/^https?:\/\//, '');
-  }
+  if (shortlink) linkDisplay = shortlink.replace(/^https?:\/\//, '');
   
-  // Artikel: potong jika terlalu panjang
   let articleTitle = userData.articleTitle || 'N/A';
-  const maxTitleLength = 40; // Sesuaikan dengan lebar mobile
-  if (articleTitle.length > maxTitleLength) {
-    articleTitle = articleTitle.substring(0, maxTitleLength - 3) + '...';
-  }
+  if (articleTitle.length > 35) articleTitle = articleTitle.substring(0, 32) + '...';
+  
+  // FORMAT BARU - FIXED UNTUK TELEGRAM
+  return `📈 <b>LAPORAN ${waktuSekarang}</b>
 
-  // FORMAT DENGAN FONT KECIL (<small> tag) - MOBILE FRIENDLY
-  return `
-<small><b>📈 LAPORAN REALTIME ${waktuSekarang}</b></small>
+👤 <b>Nama:</b> ${userName}
+👤 <b>ID:</b> ${userId}
+🔗 <b>Link:</b> <code>https://${linkDisplay}</code>
+📄 <b>Artikel:</b> ${escapeHtml(articleTitle)}
+👥 <b>Active User:</b> ${articleData.activeUsers || 0}
+👁️ <b>Views:</b> ${articleData.pageViews || 0}
 
-<small>👤 <b>Nama</b>       : ${userName}</small>
-<small>👤 <b>ID Telegram</b> : ${userId}</small>
-<small>🔗 <b>Link</b>      : <code>https://${linkDisplay}</code></small>
-<small>📄 <b>Artikel</b>   : ${escapeHtml(articleTitle)}</small>
-<small>👥 <b>Active User</b> : ${articleData.activeUsers || 0}</small>
-<small>👁️ <b>Views</b>      : ${articleData.pageViews || 0}</small>
-
-<small>🕐 <i>Hari ini | ${tanggalIndo}</i></small>`;
+<i>🕐 ${tanggalIndo} | Reset: 00:00 WIB</i>`;
 }
 
 /**
