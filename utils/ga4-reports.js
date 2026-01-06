@@ -153,7 +153,9 @@ function formatCustomReport(userData, articleData) {
   const waktuSekarang = getCurrentTimeWIB();
   const userName = escapeHtml(userData.nama || userData.name || 'User');
   const userId = userData.id || 'N/A';
-  const tanggalIndo = getTanggalIndo();
+  
+  // Ambil data hari ini
+  const today = articleData.today || articleData; // Menjaga kompatibilitas jika struktur belum diupdate
   
   // Shortlink display
   const shortlink = userData.shortlink || '';
@@ -168,17 +170,34 @@ function formatCustomReport(userData, articleData) {
     articleTitle = articleTitle.substring(0, 32) + '...';
   }
 
-  // FORMAT BARU - NO <small> TAG
+  // Hitung perbandingan jika data kemarin tersedia
+  let userComparison = '';
+  let viewsComparison = '';
+  let revenueComparison = '';
+  
+  if (articleData.yesterday) {
+    const yesterday = articleData.yesterday;
+    userComparison = formatComparison(today.activeUsers, yesterday.activeUsers);
+    viewsComparison = formatComparison(today.pageViews, yesterday.pageViews);
+    revenueComparison = formatRevenueComparison(today.adRevenue, yesterday.adRevenue);
+  }
+
+  // FORMAT LAPORAN BARU (Tanpa detail kemarin)
   return `📈 <b>LAPORAN ${waktuSekarang}</b>
 
 👤 <b>Nama:</b> ${userName}
 👤 <b>ID:</b> ${userId}
 🔗 <b>Link:</b> <code>https://${linkDisplay}</code>
 📄 <b>Artikel:</b> ${escapeHtml(articleTitle)}
-👥 <b>Active User:</b> ${articleData.activeUsers || 0}
-👁️ <b>Views:</b> ${articleData.pageViews || 0}
 
-<i>🕐 ${tanggalIndo} | Reset: 00:00 WIB</i>`;
+📊 <b>HARI INI (${getTodayDate()})</b>
+👥 <b>Active User:</b> ${today.activeUsers || 0} ${userComparison}
+👁️ <b>Views:</b> ${today.pageViews || 0} ${viewsComparison}
+💰 <b>Revenue:</b> ${formatCurrencyIDR(today.adRevenue || 0)} ${revenueComparison}
+🖱️ <b>Ad Clicks:</b> ${today.adClicks || 0}
+👀 <b>Ad Impressions:</b> ${today.adImpressions || 0}
+
+<i>🕐 ${getTanggalIndo()} | Reset: 00:00 WIB</i>`;
 }
 
 /**
