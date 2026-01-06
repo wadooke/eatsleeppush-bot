@@ -1,4 +1,4 @@
-// utils/ga4-reports.js - COMPLETE VERSION WITH SMALL FONT FORMAT
+// utils/ga4-reports.js - FIXED VERSION (NO <small> TAG)
 const { BetaAnalyticsDataClient } = require('@google-analytics/data');
 
 // Helper function untuk escape HTML
@@ -32,9 +32,19 @@ function getCurrentTimeWIB() {
   }).replace(/\./g, ':');
 }
 
+// Helper untuk format tanggal Indonesia lengkap
+function getTanggalIndo() {
+  return new Date().toLocaleDateString('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+}
+
 /**
  * Format link untuk tampil sebagai teks (bukan hyperlink)
- * Mencegah Telegram membuat preview gambar
  */
 function formatLinkAsText(url) {
   try {
@@ -48,18 +58,15 @@ function formatLinkAsText(url) {
       displayText = displayText.substring(7);
     }
     
-    // Tampilkan sebagai: https://domain.com/path dalam tag <code>
     return `<code>https://${displayText}</code>`;
     
   } catch {
-    // Fallback: escape HTML dan tampilkan sebagai teks
     return `<code>${escapeHtml(url || 'Tidak ada')}</code>`;
   }
 }
 
 /**
  * Fetch GA4 data untuk hari ini saja (00:00 - 23:59 WIB)
- * Data akan reset otomatis tiap hari
  */
 async function fetchUserArticleData(analyticsDataClient, userData) {
   try {
@@ -68,89 +75,46 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
     
     console.log(`🔍 [GA4 Query HARIAN] untuk: ${userName}`);
     console.log(`   Path: ${pagePath}`);
-    console.log(`   Periode: Hari ini (00:00 - 23:59 WIB)`);
 
     if (!pagePath || pagePath === '/') {
       throw new Error('Page path tidak valid');
     }
 
-    // QUERY UNTUK HARI INI SAJA (00:00 - sekarang)
+    // QUERY UNTUK HARI INI SAJA
     const [response] = await analyticsDataClient.runReport({
       property: `properties/${process.env.GA4_PROPERTY_ID}`,
-      dateRanges: [{
-        startDate: 'today', // 00:00 WIB hari ini
-        endDate: 'today',   // sampai sekarang
-      }],
-      dimensions: [
-        { name: 'pagePath' },
-        { name: 'hour' } // Ambil per jam untuk tracking
-      ],
+      dateRanges: [{ startDate: 'today', endDate: 'today' }],
+      dimensions: [{ name: 'pagePath' }],
       metrics: [
         { name: 'activeUsers' },
         { name: 'screenPageViews' }
       ],
       dimensionFilter: {
-        andGroup: {
-          expressions: [
-            {
-              filter: {
-                fieldName: 'pagePath',
-                stringFilter: {
-                  matchType: 'EXACT',
-                  value: pagePath,
-                  caseSensitive: false
-                }
-              }
-            }
-          ]
+        filter: {
+          fieldName: 'pagePath',
+          stringFilter: {
+            matchType: 'EXACT',
+            value: pagePath,
+            caseSensitive: false
+          }
         }
       },
-      orderBys: [
-        { dimension: { dimensionName: 'hour' }, desc: false }
-      ],
-      limit: 24 // Maks 24 jam data
+      limit: 1
     });
 
     // PROSES DATA HARIAN
-    let dailyActiveUsers = 0;
-    let dailyPageViews = 0;
-    let hourlyBreakdown = [];
-    
     if (response && response.rows && response.rows.length > 0) {
-      console.log(`   📊 Data ditemukan: ${response.rows.length} baris data`);
+      const row = response.rows[0];
+      const activeUsers = parseInt(row.metricValues[0]?.value) || 0;
+      const pageViews = parseInt(row.metricValues[1]?.value) || 0;
       
-      response.rows.forEach(row => {
-        const hour = parseInt(row.dimensionValues[1]?.value) || 0;
-        const activeUsers = parseInt(row.metricValues[0]?.value) || 0;
-        const pageViews = parseInt(row.metricValues[1]?.value) || 0;
-        
-        dailyActiveUsers += activeUsers;
-        dailyPageViews += pageViews;
-        
-        // Simpan breakdown per jam (untuk logging)
-        if (activeUsers > 0 || pageViews > 0) {
-          hourlyBreakdown.push({ 
-            hour: `${hour}:00`, 
-            activeUsers, 
-            pageViews 
-          });
-        }
-      });
-      
-      console.log(`   📈 Hasil: ${dailyActiveUsers} active users, ${dailyPageViews} page views`);
-      
-      if (hourlyBreakdown.length > 0) {
-        console.log(`   ⏰ Breakdown per jam:`, JSON.stringify(hourlyBreakdown));
-      }
+      console.log(`   📈 Hasil: ${activeUsers} active users, ${pageViews} page views`);
       
       return {
-        activeUsers: dailyActiveUsers,
-        pageViews: dailyPageViews,
+        activeUsers: activeUsers,
+        pageViews: pageViews,
         dataDate: getTodayDate(),
-        dataPeriod: '00:00 - ' + getCurrentTimeWIB() + ' WIB',
-        hourlyBreakdown: hourlyBreakdown,
-        isTodayData: true,
-        note: 'Data akan reset otomatis pada pukul 00:00 WIB'
+        isTodayData: true
       };
       
     } else {
@@ -160,26 +124,22 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
         activeUsers: 0,
         pageViews: 0,
         dataDate: getTodayDate(),
-        dataPeriod: '00:00 - ' + getCurrentTimeWIB() + ' WIB',
         isTodayData: true,
-        note: 'Belum ada traffic untuk artikel ini hari ini'
+        note: 'Belum ada traffic hari ini'
       };
     }
 
   } catch (error) {
     console.error('❌ Error fetchUserArticleData:', error.message);
     
-    // Log detail error untuk debugging
     if (error.details) {
       console.error('   Details:', error.details);
     }
     
-    // Return default data dengan info error
     return {
       activeUsers: 0,
       pageViews: 0,
       dataDate: getTodayDate(),
-      dataPeriod: '00:00 - ' + getCurrentTimeWIB() + ' WIB',
       error: error.message,
       isTodayData: true
     };
@@ -187,28 +147,28 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
 }
 
 /**
- * Format laporan dengan font kecil (<small> tag) untuk mobile friendly
+ * Format laporan - FIXED (NO <small> TAG)
  */
 function formatCustomReport(userData, articleData) {
   const waktuSekarang = getCurrentTimeWIB();
   const userName = escapeHtml(userData.nama || userData.name || 'User');
   const userId = userData.id || 'N/A';
+  const tanggalIndo = getTanggalIndo();
   
-  const tanggalIndo = new Date().toLocaleDateString('id-ID', {
-    timeZone: 'Asia/Jakarta',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  });
-  
+  // Shortlink display
   const shortlink = userData.shortlink || '';
   let linkDisplay = 'Tidak ada';
-  if (shortlink) linkDisplay = shortlink.replace(/^https?:\/\//, '');
+  if (shortlink) {
+    linkDisplay = shortlink.replace(/^https?:\/\//, '');
+  }
   
+  // Artikel title
   let articleTitle = userData.articleTitle || 'N/A';
-  if (articleTitle.length > 35) articleTitle = articleTitle.substring(0, 32) + '...';
-  
-  // FORMAT BARU - FIXED UNTUK TELEGRAM
+  if (articleTitle.length > 35) {
+    articleTitle = articleTitle.substring(0, 32) + '...';
+  }
+
+  // FORMAT BARU - NO <small> TAG
   return `📈 <b>LAPORAN ${waktuSekarang}</b>
 
 👤 <b>Nama:</b> ${userName}
@@ -261,5 +221,6 @@ module.exports = {
   escapeHtml,
   formatLinkAsText,
   getTodayDate,
-  getCurrentTimeWIB
+  getCurrentTimeWIB,
+  getTanggalIndo
 };
