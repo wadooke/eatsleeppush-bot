@@ -167,32 +167,51 @@ ${rateLimitCheck.message}
     // 7. FORMAT LAPORAN
     const reportMessage = formatCustomReport(userDataWithId, articleData);
     
-    // 8. EDIT PESAN DI LAPORAN MENJADI HASIL - DENGAN VALIDASI
-    if (laporanProcessingMsg && laporanProcessingMsg.message_id) {
-      const fullReportMessage = reportMessage + 
-        `\n\n📌 <b>Info Request:</b>\n` +
-        `• <b>User:</b> ${userName} (ID: ${userId})\n` +
-        `• <b>Dari topik:</b> ${getThreadName(sourceThreadId)}\n` +
-        `• <b>Waktu request:</b> ${new Date().toLocaleString('id-ID', { 
-          timeZone: 'Asia/Jakarta',
-          hour12: false,
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        }).replace(/\./g, ':')}`;
-      
-      await bot.editMessageText(fullReportMessage, {
-        chat_id: chatId,
-        message_id: laporanProcessingMsg.message_id,
-        parse_mode: 'HTML'
-      });
-    } else {
-      // Jika tidak ada message_id, kirim sebagai pesan baru
-      await bot.sendMessage(chatId, reportMessage, {
-        parse_mode: 'HTML',
-        message_thread_id: laporanThreadId
-      });
-    }
+// 8. EDIT PESAN DI LAPORAN MENJADI HASIL - FORMAT SIMPLE
+if (laporanProcessingMsg && laporanProcessingMsg.message_id) {
+  // Format waktu sekarang
+  const waktuSekarang = new Date().toLocaleString('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }).replace(/\./g, ':');
+  
+  // Shortlink tanpa https://
+  const shortlink = userData.shortlink || '';
+  let shortlinkDisplay = shortlink;
+  if (shortlinkDisplay.startsWith('https://')) {
+    shortlinkDisplay = shortlinkDisplay.substring(8);
+  } else if (shortlinkDisplay.startsWith('http://')) {
+    shortlinkDisplay = shortlinkDisplay.substring(7);
+  }
+  
+  // Format laporan SIMPLE
+  const reportMessage = `
+📈 <b>LAPORAN REALTIME - SAAT INI</b>
+⏰ <b>Waktu</b>      : ${waktuSekarang}
+👋 <b>Nama</b>      : ${escapeHtml(userData.nama)}
+👥 <b>User ID</b>   : ${userId}
+👥 <b>Link</b>      : ${shortlinkDisplay}
+👥 <b>Artikel</b>   : ${escapeHtml(userData.articleTitle || 'N/A')}
+📊 <b>Active User</b> : ${articleData.activeUsers || 0}
+👁️ <b>Views</b>      : ${articleData.pageViews || 0}
+
+<i>Periode: Hari ini (reset 00:00 WIB)</i>`;
+  
+  await bot.editMessageText(reportMessage, {
+    chat_id: chatId,
+    message_id: laporanProcessingMsg.message_id,
+    parse_mode: 'HTML'
+  });
+} else {
+  // Jika tidak ada message_id, kirim sebagai pesan baru
+  await bot.sendMessage(chatId, reportMessage, {
+    parse_mode: 'HTML',
+    message_thread_id: laporanThreadId
+  });
+}
 
     // 9. UPDATE PESAN DI THREAD ASAL (SUKSES) - SIMPLE VERSION
     if (sourceProcessingMsg && sourceProcessingMsg.message_id) {
