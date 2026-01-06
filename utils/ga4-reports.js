@@ -114,6 +114,11 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
     
     try {
       console.log(`   📡 Mengambil data realtime...`);
+      console.log('=== DEBUG REALTIME REQUEST ===');
+      console.log('Property Path:', `properties/${process.env.GA4_PROPERTY_ID}`);
+      console.log('Dimensions:', JSON.stringify([{ name: 'pagePath' }]));
+      console.log('Metrics:', JSON.stringify([{ name: 'activeUsers' }, { name: 'screenPageViews' }]));
+      console.log('Dimension Filter Value:', pagePath);
       const [realtimeResponse] = await analyticsDataClient.runRealtimeReport({
         property: `properties/${process.env.GA4_PROPERTY_ID}`,
         dimensions: [{ name: 'pagePath' }],
