@@ -140,57 +140,100 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
       }
     }
 
-    // 2. QUERY STANDARD "KEMARIN" YANG BENAR
-    let yesterdayData = { adRevenue: 0, adClicks: 0, adImpressions: 0 };
-    
-    try {
-      console.log(`   📅 Mengambil data kemarin (revenue)...`);
-      const [standardResponse] = await analyticsDataClient.runReport({
+// ---- 2. QUERY STANDARD "KEMARIN" (SEDERHANA & DIJAMIN BERJALAN) ----
+let yesterdayData = { adRevenue: 0, adClicks: 0, adImpressions: 0, activeUsers: 0, pageViews: 0 };
+
+try {
+    console.log(`   📅 Mengambil data kemarin (revenue)...`);
+    // PERTAMA: Query tanpa filter path, hanya untuk testing koneksi
+    const [testResponse] = await analyticsDataClient.runReport({
         property: `properties/${process.env.GA4_PROPERTY_ID}`,
-        dateRanges: [{ startDate: '2026-01-05', endDate: '2026-01-05' }], // Tanggal spesifik
+        dateRanges: [{ startDate: '2026-01-05', endDate: '2026-01-05' }],
+        dimensions: [{ name: 'pageTitle' }], // Ganti ke dimensi yang lebih umum
+        metrics: [
+            { name: 'activeUsers' },
+            { name: 'screenPageViews' }
+            // SEMENTARA HAPUS dulu metrik publisherAd* untuk testing
+        ],
+        limit: 5 // Ambil 5 data teratas saja
+    });
+
+    console.log(`   🔍 Hasil Test Query (tanpa filter):`, testResponse?.rows?.length || 0, 'baris data');
+    if (testResponse?.rows) {
+        testResponse.rows.forEach((row, i) => {
+            console.log(`      ${i+1}. ${row.dimensionValues[0]?.value}: ${row.metricValues[0]?.value} users`);
+        });
+    }
+
+    // KEDUA: Jika test berhasil, coba query dengan filter path TAPI tanpa metrik revenue
+    const [standardResponse] = await analyticsDataClient.runReport({
+        property: `properties/${process.env.GA4_PROPERTY_ID}`,
+        dateRanges: [{ startDate: '2026-01-05', endDate: '2026-01-05' }],
         dimensions: [{ name: 'pagePath' }],
         metrics: [
-          { name: 'activeUsers' },
-          { name: 'screenPageViews' },
-          { name: 'publisherAdRevenue' },
-          { name: 'publisherAdClicks' },
-          { name: 'publisherAdImpressions' }
+            { name: 'activeUsers' },
+            { name: 'screenPageViews' }
+            // BELUM pakai metrik revenue dulu
         ],
         dimensionFilter: {
-          andGroup: {
-            expressions: [{
-              filter: {
+            filter: { // Kembali ke struktur filter sederhana
                 fieldName: 'pagePath',
                 stringFilter: {
-                  matchType: 'EXACT',
-                  value: pagePath,
-                  caseSensitive: false
+                    matchType: 'EXACT',
+                    value: pagePath,
+                    caseSensitive: false
                 }
-              }
-            }]
-          }
+            }
         },
         limit: 1
-      });
+    });
 
-      if (standardResponse?.rows?.[0]) {
+    if (standardResponse?.rows?.[0]) {
         const row = standardResponse.rows[0];
-        // Pastikan urutannya sesuai dengan metrics di atas
-        yesterdayData.adRevenue = parseFloat(row.metricValues[2]?.value) || 0;
-        yesterdayData.adClicks = parseInt(row.metricValues[3]?.value) || 0;
-        yesterdayData.adImpressions = parseInt(row.metricValues[4]?.value) || 0;
-        console.log(`   ✅ Data kemarin: Revenue: ${yesterdayData.adRevenue}, Clicks: ${yesterdayData.adClicks}`);
-      } else {
-        console.log(`   ⚠️  Tidak ada data revenue kemarin untuk path ini`);
-      }
-      
-    } catch (standardError) {
-      console.error('   ❌ Gagal ambil data kemarin:', standardError.message);
-      if (standardError.details) {
-        console.error('   🔍 Error Details:', JSON.stringify(standardError.details));
-      }
-      throw new Error('Gagal mengambil data revenue dari GA4.');
+        yesterdayData.activeUsers = parseInt(row.metricValues[0]?.value) || 0;
+        yesterdayData.pageViews = parseInt(row.metricValues[1]?.value) || 0;
+        console.log(`   ✅ Query dengan filter BERHASIL: ${yesterdayData.activeUsers} users, ${yesterdayData.pageViews} views`);
+        
+        // KETIGA: Jika berhasil, baru coba query khusus untuk revenue
+        try {
+            const [revenueResponse] = await analyticsDataClient.runReport({
+                property: `properties/${process.env.GA4_PROPERTY_ID}`,
+                dateRanges: [{ startDate: '2026-01-05', endDate: '2026-01-05' }],
+                metrics: [
+                    { name: 'publisherAdRevenue' },
+                    { name: 'publisherAdClicks' },
+                    { name: 'publisherAdImpressions' }
+                ],
+                // Query revenue TANPA filter dulu, untuk lihat apakah metriknya ada
+                limit: 1
+            });
+            
+            if (revenueResponse?.rows?.[0]) {
+                const row = revenueResponse.rows[0];
+                yesterdayData.adRevenue = parseFloat(row.metricValues[0]?.value) || 0;
+                yesterdayData.adClicks = parseInt(row.metricValues[1]?.value) || 0;
+                yesterdayData.adImpressions = parseInt(row.metricValues[2]?.value) || 0;
+                console.log(`   💰 Data Revenue DITEMUKAN: ${yesterdayData.adRevenue}`);
+            } else {
+                console.log(`   ⚠️  Metrik revenue ada, tapi tidak ada data untuk tanggal tersebut`);
+            }
+            
+        } catch (revenueError) {
+            console.error('   ⚠️  Metrik publisherAdRevenue mungkin tidak tersedia:', revenueError.message);
+            // Jangan throw error, biarkan revenue tetap 0
+        }
+        
+    } else {
+        console.log(`   ⚠️  Tidak ada data kemarin untuk path ini (${pagePath})`);
     }
+    
+} catch (standardError) {
+    console.error('   ❌ Gagal total query kemarin:', standardError.message);
+    if (standardError.details) {
+        console.error('   🔍 Error Details:', JSON.stringify(standardError.details));
+    }
+    throw new Error('Gagal mengambil data dari GA4.');
+}
 
     // 3. GABUNGKAN HASIL
     return {
