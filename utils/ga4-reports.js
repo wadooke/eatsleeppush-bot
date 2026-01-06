@@ -1,4 +1,4 @@
-// utils/ga4-reports.js - UPDATE UNTUK LAPORAN HARIAN
+// utils/ga4-reports.js - COMPLETE VERSION WITH SMALL FONT FORMAT
 const { BetaAnalyticsDataClient } = require('@google-analytics/data');
 
 // Helper function untuk escape HTML
@@ -10,31 +10,6 @@ function escapeHtml(text) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
-}
-
-// Extract domain dari shortlink (tanpa https://)
-function extractShortlinkDisplay(shortlink) {
-  try {
-    if (!shortlink) return 'N/A';
-    
-    // Hapus https:// atau http://
-    let display = shortlink;
-    if (display.startsWith('https://')) {
-      display = display.substring(8);
-    } else if (display.startsWith('http://')) {
-      display = display.substring(7);
-    }
-    
-    // Hapus www. jika ada
-    if (display.startsWith('www.')) {
-      display = display.substring(4);
-    }
-    
-    return display;
-  } catch {
-    // Jika parsing gagal, return asli tanpa https://
-    return shortlink ? shortlink.replace(/^https?:\/\//, '') : 'N/A';
-  }
 }
 
 // Helper untuk mendapatkan tanggal hari ini dalam format YYYY-MM-DD
@@ -55,6 +30,31 @@ function getCurrentTimeWIB() {
     minute: '2-digit',
     second: '2-digit'
   }).replace(/\./g, ':');
+}
+
+/**
+ * Format link untuk tampil sebagai teks (bukan hyperlink)
+ * Mencegah Telegram membuat preview gambar
+ */
+function formatLinkAsText(url) {
+  try {
+    if (!url) return '<code>Tidak ada</code>';
+    
+    // Hapus https:// atau http:// untuk display
+    let displayText = url;
+    if (displayText.startsWith('https://')) {
+      displayText = displayText.substring(8);
+    } else if (displayText.startsWith('http://')) {
+      displayText = displayText.substring(7);
+    }
+    
+    // Tampilkan sebagai: https://domain.com/path dalam tag <code>
+    return `<code>https://${displayText}</code>`;
+    
+  } catch {
+    // Fallback: escape HTML dan tampilkan sebagai teks
+    return `<code>${escapeHtml(url || 'Tidak ada')}</code>`;
+  }
 }
 
 /**
@@ -140,7 +140,7 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
       console.log(`   📈 Hasil: ${dailyActiveUsers} active users, ${dailyPageViews} page views`);
       
       if (hourlyBreakdown.length > 0) {
-        console.log(`   ⏰ Breakdown per jam:`, hourlyBreakdown);
+        console.log(`   ⏰ Breakdown per jam:`, JSON.stringify(hourlyBreakdown));
       }
       
       return {
@@ -187,45 +187,91 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
 }
 
 /**
- * Format laporan HARIAN sesuai permintaan
+ * Format laporan dengan font kecil (<small> tag) untuk mobile friendly
  */
 function formatCustomReport(userData, articleData) {
-  // Format waktu sekarang
   const waktuSekarang = getCurrentTimeWIB();
-
-  const userName = userData.nama || userData.name || 'User';
+  const userName = escapeHtml(userData.nama || userData.name || 'User');
   const userId = userData.id || 'N/A';
   
-  // Shortlink: tampilkan tanpa https:// (contoh: wa-me.cloud/bin001)
-  const shortlink = userData.shortlink || '';
-  const shortlinkDisplay = extractShortlinkDisplay(shortlink);
+  // Format tanggal Indonesia lengkap
+  const today = new Date();
+  const tanggalIndo = today.toLocaleDateString('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
   
-  const articleTitle = userData.articleTitle || 
-    (userData.destinationUrl ? 
-      userData.destinationUrl.split('/').filter(p => p).pop() || 'unknown' 
-      : 'unknown'
-    );
+  // Shortlink: format sebagai teks (bukan link)
+  const shortlink = userData.shortlink || '';
+  let linkDisplay = 'Tidak ada';
+  if (shortlink) {
+    // Hapus https:// untuk display lebih clean
+    linkDisplay = shortlink.replace(/^https?:\/\//, '');
+  }
+  
+  // Artikel: potong jika terlalu panjang
+  let articleTitle = userData.articleTitle || 'N/A';
+  const maxTitleLength = 40; // Sesuaikan dengan lebar mobile
+  if (articleTitle.length > maxTitleLength) {
+    articleTitle = articleTitle.substring(0, maxTitleLength - 3) + '...';
+  }
 
-  // Format laporan SIMPLE
+  // FORMAT DENGAN FONT KECIL (<small> tag) - MOBILE FRIENDLY
   return `
-📈 <b>LAPORAN REALTIME - SAAT INI</b>
-⏰ <b>Waktu</b>      : ${waktuSekarang}
-👋 <b>Nama</b>      : ${escapeHtml(userName)}
-👥 <b>User ID</b>   : ${userId}
-👥 <b>Link</b>      : ${shortlinkDisplay}
-👥 <b>Artikel</b>   : ${escapeHtml(articleTitle)}
-📊 <b>Active User</b> : ${articleData.activeUsers || 0}
-👁️ <b>Views</b>      : ${articleData.pageViews || 0}
+<small><b>📈 LAPORAN REALTIME ${waktuSekarang}</b></small>
 
-<i>Periode: ${articleData.dataPeriod || 'Hari ini'} (reset 00:00 WIB)</i>`;
+<small>👤 <b>Nama</b>       : ${userName}</small>
+<small>👤 <b>ID Telegram</b> : ${userId}</small>
+<small>🔗 <b>Link</b>      : <code>https://${linkDisplay}</code></small>
+<small>📄 <b>Artikel</b>   : ${escapeHtml(articleTitle)}</small>
+<small>👥 <b>Active User</b> : ${articleData.activeUsers || 0}</small>
+<small>👁️ <b>Views</b>      : ${articleData.pageViews || 0}</small>
+
+<small>🕐 <i>Hari ini | ${tanggalIndo}</i></small>`;
 }
 
-// Export functions
+/**
+ * Debug function untuk test GA4 connection
+ */
+async function debugGA4Connection(analyticsDataClient) {
+  try {
+    const [response] = await analyticsDataClient.runReport({
+      property: `properties/${process.env.GA4_PROPERTY_ID}`,
+      dateRanges: [{ startDate: 'yesterday', endDate: 'today' }],
+      dimensions: [{ name: 'date' }],
+      metrics: [
+        { name: 'activeUsers' },
+        { name: 'screenPageViews' },
+        { name: 'sessions' }
+      ],
+      limit: 1
+    });
+
+    return {
+      success: true,
+      propertyId: process.env.GA4_PROPERTY_ID,
+      data: response.rows || [],
+      totalMetrics: response.rows ? response.rows[0]?.metricValues : null
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+      propertyId: process.env.GA4_PROPERTY_ID
+    };
+  }
+}
+
+// EXPORT FUNCTIONS
 module.exports = {
   fetchUserArticleData,
   formatCustomReport,
+  debugGA4Connection,
   escapeHtml,
-  extractShortlinkDisplay,
+  formatLinkAsText,
   getTodayDate,
   getCurrentTimeWIB
 };
