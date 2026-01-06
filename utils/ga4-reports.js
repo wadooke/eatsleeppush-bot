@@ -313,6 +313,25 @@ function formatSimpleReport(userData, articleData) {
          `<i>🕐 ${getTanggalIndo()} | Reset: 00:00 WIB</i>`;
 }
 
+// Tambahkan fungsi ini di ga4-reports.js
+async function testBasicAPI(analyticsDataClient) {
+  console.log('🧪 Testing BASIC GA4 API Connection...');
+  try {
+    const [response] = await analyticsDataClient.runReport({
+      property: `properties/${process.env.GA4_PROPERTY_ID}`,
+      dateRanges: [{ startDate: 'yesterday', endDate: 'yesterday' }],
+      dimensions: [{ name: 'country' }],
+      metrics: [{ name: 'activeUsers' }],
+      limit: 5
+    });
+    console.log('✅ Basic API Test SUCCESS. Sample data:', response.rows?.slice(0, 2));
+    return true;
+  } catch (error) {
+    console.error('❌ Basic API Test FAILED:', error.message, error.details);
+    return false;
+  }
+}
+                                                
 // ============================================
 // EXPORT FUNCTIONS
 // ============================================
@@ -326,5 +345,6 @@ module.exports = {
   getTodayDate,
   getYesterdayDate,
   getCurrentTimeWIB,
-  getTanggalIndo
+  getTanggalIndo,
+  testBasicAPI
 };
