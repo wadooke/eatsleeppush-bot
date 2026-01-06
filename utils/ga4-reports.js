@@ -96,93 +96,92 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
   try {
     const pagePath = userData.ga4Path || userData.destinationUrl?.match(/https?:\/\/[^\/]+(\/.*)/)?.[1] || '/';
     const userName = userData.nama || userData.name || 'User';
-    
-    console.log(`🔍 [GA4 Query KEMARIN] untuk: ${userName}`);
-    console.log(`   Path: ${pagePath}`);
 
-    if (!pagePath || pagePath === '/') {
-      throw new Error('Page path tidak valid');
-    }
+    console.log(`🔍 [GA4 Query KOMBINASI] untuk: ${userName}`);
 
-    // QUERY UNTUK KEMARIN SAJA
-    const [response] = await analyticsDataClient.runReport({
-      property: `properties/${process.env.GA4_PROPERTY_ID}`,
-      dateRanges: [{ startDate: 'yesterday', endDate: 'yesterday' }], // ← HANYA KEMARIN
-      dimensions: [{ name: 'pagePath' }],
-      metrics: [
-        { name: 'activeUsers' },
-        { name: 'screenPageViews' },
-        { name: 'publisherAdClicks' },
-        { name: 'publisherAdImpressions' },
-        { name: 'publisherAdRevenue' }
-      ],
-      dimensionFilter: {
-        filter: {
-          fieldName: 'pagePath',
-          stringFilter: {
-            matchType: 'EXACT',
-            value: pagePath,
-            caseSensitive: false
+    // ---- 1. QUERY REALTIME (Active Users & Views) ----
+    let realtimeData = { activeUsers: 0, pageViews: 0 };
+    try {
+      const [realtimeResponse] = await analyticsDataClient.runRealtimeReport({
+        property: `properties/${process.env.GA4_PROPERTY_ID}`,
+        dimensions: [{ name: 'pagePath' }],
+        metrics: [
+          { name: 'activeUsers' }, // Jumlah user aktif 30 menit terakhir[citation:1][citation:3]
+          { name: 'screenPageViews' } // Jumlah views 30 menit terakhir[citation:3]
+        ],
+        dimensionFilter: {
+          filter: {
+            fieldName: 'pagePath',
+            stringFilter: {
+              matchType: 'EXACT',
+              value: pagePath,
+              caseSensitive: false
+            }
           }
-        }
-      },
-      limit: 1
-    });
-
-    // PROSES DATA KEMARIN
-    if (response && response.rows && response.rows.length > 0) {
-      const row = response.rows[0];
-      const activeUsers = parseInt(row.metricValues[0]?.value) || 0;
-      const pageViews = parseInt(row.metricValues[1]?.value) || 0;
-      const adClicks = parseInt(row.metricValues[2]?.value) || 0;
-      const adImpressions = parseInt(row.metricValues[3]?.value) || 0;
-      const adRevenue = parseFloat(row.metricValues[4]?.value) || 0;
-      
-      console.log(`📈 Hasil: ${activeUsers} users, ${pageViews} views, Revenue: ${adRevenue}`);
-      
-      return {
-        activeUsers: activeUsers,
-        pageViews: pageViews,
-        adClicks: adClicks,
-        adImpressions: adImpressions,
-        adRevenue: adRevenue,
-        dataDate: getYesterdayDate(), // ← Gunakan tanggal kemarin
-        isYesterdayData: true,
-        note: 'Data kemarin sudah diproses penuh'
-      };
-      
-    } else {
-      console.log(`   ⚠️  Tidak ada data untuk kemarin`);
-      
-      return {
-        activeUsers: 0,
-        pageViews: 0,
-        adClicks: 0,
-        adImpressions: 0,
-        adRevenue: 0,
-        dataDate: getYesterdayDate(),
-        isYesterdayData: true,
-        note: 'Belum ada traffic kemarin'
-      };
+        },
+        limit: 1
+      });
+      if (realtimeResponse?.rows?.[0]) {
+        const row = realtimeResponse.rows[0];
+        realtimeData.activeUsers = parseInt(row.metricValues[0]?.value) || 0;
+        realtimeData.pageViews = parseInt(row.metricValues[1]?.value) || 0;
+      }
+      console.log(`📡 Data Realtime: ${realtimeData.activeUsers} users, ${realtimeData.pageViews} views`);
+    } catch (realtimeError) {
+      console.error('⚠️  Gagal ambil data realtime:', realtimeError.message);
+      // Jangan gagal total, lanjut dengan nilai 0 untuk realtime
     }
+
+    // ---- 2. QUERY STANDARD "KEMARIN" (Revenue, dll) ----
+    let yesterdayData = { adRevenue: 0, adClicks: 0, adImpressions: 0 };
+    try {
+      const [standardResponse] = await analyticsDataClient.runReport({
+        property: `properties/${process.env.GA4_PROPERTY_ID}`,
+        dateRanges: [{ startDate: 'yesterday', endDate: 'yesterday' }],
+        dimensions: [{ name: 'pagePath' }],
+        metrics: [
+          { name: 'publisherAdRevenue' },
+          { name: 'publisherAdClicks' },
+          { name: 'publisherAdImpressions' }
+        ],
+        dimensionFilter: {
+          filter: {
+            fieldName: 'pagePath',
+            stringFilter: {
+              matchType: 'EXACT',
+              value: pagePath,
+              caseSensitive: false
+            }
+          }
+        },
+        limit: 1
+      });
+      if (standardResponse?.rows?.[0]) {
+        const row = standardResponse.rows[0];
+        yesterdayData.adRevenue = parseFloat(row.metricValues[0]?.value) || 0;
+        yesterdayData.adClicks = parseInt(row.metricValues[1]?.value) || 0;
+        yesterdayData.adImpressions = parseInt(row.metricValues[2]?.value) || 0;
+      }
+      console.log(`📅 Data Kemarin: Revenue: ${yesterdayData.adRevenue}`);
+    } catch (standardError) {
+      console.error('❌ Gagal ambil data kemarin:', standardError.message);
+      throw new Error('Gagal mengambil data revenue dari GA4.');
+    }
+
+    // ---- GABUNGKAN HASIL ----
+    return {
+      activeUsers: realtimeData.activeUsers,   // Dari realtime
+      pageViews: realtimeData.pageViews,       // Dari realtime
+      adRevenue: yesterdayData.adRevenue,      // Dari kemarin
+      adClicks: yesterdayData.adClicks,        // Dari kemarin
+      adImpressions: yesterdayData.adImpressions, // Dari kemarin
+      dataDate: getTodayDate(), // Tanggal laporan (hari ini)
+      note: 'Active Users & Views: data 30 menit terakhir. Revenue: data hari kemarin yang telah diproses.'
+    };
 
   } catch (error) {
-    console.error('❌ Error fetchUserArticleData:', error.message);
-    
-    if (error.details) {
-      console.error('   Details:', error.details);
-    }
-    
-    return {
-      activeUsers: 0,
-      pageViews: 0,
-      adClicks: 0,
-      adImpressions: 0,
-      adRevenue: 0,
-      dataDate: getYesterdayDate(),
-      error: error.message,
-      isYesterdayData: true
-    };
+    console.error('❌ Error utama fetchUserArticleData:', error.message);
+    throw error;
   }
 }
 
