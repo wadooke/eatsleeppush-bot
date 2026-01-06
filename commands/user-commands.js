@@ -164,71 +164,23 @@ ${rateLimitCheck.message}
     // 6. AMBIL DATA GA4
     const articleData = await fetchUserArticleData(analyticsDataClient, userDataWithId);
     
-    // 7. FORMAT LAPORAN
+    // 7. FORMAT LAPORAN (gunakan fungsi dari ga4-reports.js)
     const reportMessage = formatCustomReport(userDataWithId, articleData);
     
-// 8. EDIT PESAN DI LAPORAN MENJADI HASIL - FORMAT BARU
-if (laporanProcessingMsg && laporanProcessingMsg.message_id) {
-  // Format waktu sekarang
-  const waktuSekarang = new Date().toLocaleString('id-ID', {
-    timeZone: 'Asia/Jakarta',
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  }).replace(/\./g, ':');
-  
-  // Format tanggal Indonesia
-  const tanggalIndo = new Date().toLocaleDateString('id-ID', {
-    timeZone: 'Asia/Jakarta',
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  });
-  
-  const userName = escapeHtml(userData.nama || 'User');
-  const userId = userData.id || 'N/A';
-  
-  // Shortlink: format sebagai teks (bukan link)
-  const shortlink = userData.shortlink || '';
-  let linkDisplay = 'Tidak ada';
-  if (shortlink) {
-    linkDisplay = shortlink.replace(/^https?:\/\//, '');
-  }
-  
-  // Artikel: potong jika terlalu panjang
-  let articleTitle = userData.articleTitle || 'N/A';
-  const maxTitleLength = 40;
-  if (articleTitle.length > maxTitleLength) {
-    articleTitle = articleTitle.substring(0, maxTitleLength - 3) + '...';
-  }
-  
-  // FORMAT BARU DENGAN FONT KECIL
-  const reportMessage = `
-<small><b>📈 LAPORAN REALTIME ${waktuSekarang}</b></small>
-
-<small>👤 <b>Nama</b>       : ${userName}</small>
-<small>👤 <b>ID Telegram</b> : ${userId}</small>
-<small>🔗 <b>Link</b>      : <code>https://${linkDisplay}</code></small>
-<small>📄 <b>Artikel</b>   : ${escapeHtml(articleTitle)}</small>
-<small>👥 <b>Active User</b> : ${articleData.activeUsers || 0}</small>
-<small>👁️ <b>Views</b>      : ${articleData.pageViews || 0}</small>
-
-<small>🕐 <i>Hari ini | ${tanggalIndo}</i></small>`;
-  
-  await bot.editMessageText(reportMessage, {
-    chat_id: chatId,
-    message_id: laporanProcessingMsg.message_id,
-    parse_mode: 'HTML'
-  });
-} else {
-  // Jika tidak ada message_id, kirim sebagai pesan baru
-  await bot.sendMessage(chatId, reportMessage, {
-    parse_mode: 'HTML',
-    message_thread_id: laporanThreadId
-  });
-}
+    // 8. EDIT PESAN DI LAPORAN MENJADI HASIL
+    if (laporanProcessingMsg && laporanProcessingMsg.message_id) {
+      await bot.editMessageText(reportMessage, {
+        chat_id: chatId,
+        message_id: laporanProcessingMsg.message_id,
+        parse_mode: 'HTML'
+      });
+    } else {
+      // Jika tidak ada message_id, kirim sebagai pesan baru
+      await bot.sendMessage(chatId, reportMessage, {
+        parse_mode: 'HTML',
+        message_thread_id: laporanThreadId
+      });
+    }
 
     // 9. UPDATE PESAN DI THREAD ASAL (SUKSES) - SIMPLE VERSION
     if (sourceProcessingMsg && sourceProcessingMsg.message_id) {
