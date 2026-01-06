@@ -57,6 +57,16 @@ function formatCurrencyIDR(amount) {
   }).format(numericAmount);
 }
 
+// Helper untuk mendapatkan tanggal kemarin dalam format YYYY-MM-DD
+function getYesterdayDate() {
+  const now = new Date();
+  now.setDate(now.getDate() - 1); // Kurangi 1 hari
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 /**
  * Format link untuk tampil sebagai teks (bukan hyperlink)
  */
@@ -80,28 +90,31 @@ function formatLinkAsText(url) {
 }
 
 /**
- * Fetch GA4 data untuk hari ini saja (00:00 - 23:59 WIB)
+ * Fetch GA4 data untuk KEMARIN (bukan hari ini)
  */
 async function fetchUserArticleData(analyticsDataClient, userData) {
   try {
     const pagePath = userData.ga4Path || userData.destinationUrl?.match(/https?:\/\/[^\/]+(\/.*)/)?.[1] || '/';
     const userName = userData.nama || userData.name || 'User';
     
-    console.log(`🔍 [GA4 Query HARIAN] untuk: ${userName}`);
+    console.log(`🔍 [GA4 Query KEMARIN] untuk: ${userName}`);
     console.log(`   Path: ${pagePath}`);
 
     if (!pagePath || pagePath === '/') {
       throw new Error('Page path tidak valid');
     }
 
-    // QUERY UNTUK HARI INI SAJA
+    // QUERY UNTUK KEMARIN SAJA
     const [response] = await analyticsDataClient.runReport({
       property: `properties/${process.env.GA4_PROPERTY_ID}`,
-      dateRanges: [{ startDate: 'today', endDate: 'today' }],
+      dateRanges: [{ startDate: 'yesterday', endDate: 'yesterday' }], // ← HANYA KEMARIN
       dimensions: [{ name: 'pagePath' }],
       metrics: [
         { name: 'activeUsers' },
-        { name: 'screenPageViews' }
+        { name: 'screenPageViews' },
+        { name: 'publisherAdClicks' },
+        { name: 'publisherAdImpressions' },
+        { name: 'publisherAdRevenue' }
       ],
       dimensionFilter: {
         filter: {
@@ -116,30 +129,40 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
       limit: 1
     });
 
-    // PROSES DATA HARIAN
+    // PROSES DATA KEMARIN
     if (response && response.rows && response.rows.length > 0) {
       const row = response.rows[0];
       const activeUsers = parseInt(row.metricValues[0]?.value) || 0;
       const pageViews = parseInt(row.metricValues[1]?.value) || 0;
+      const adClicks = parseInt(row.metricValues[2]?.value) || 0;
+      const adImpressions = parseInt(row.metricValues[3]?.value) || 0;
+      const adRevenue = parseFloat(row.metricValues[4]?.value) || 0;
       
-      console.log(`   📈 Hasil: ${activeUsers} active users, ${pageViews} page views`);
+      console.log(`📈 Hasil: ${activeUsers} users, ${pageViews} views, Revenue: ${adRevenue}`);
       
       return {
         activeUsers: activeUsers,
         pageViews: pageViews,
-        dataDate: getTodayDate(),
-        isTodayData: true
+        adClicks: adClicks,
+        adImpressions: adImpressions,
+        adRevenue: adRevenue,
+        dataDate: getYesterdayDate(), // ← Gunakan tanggal kemarin
+        isYesterdayData: true,
+        note: 'Data kemarin sudah diproses penuh'
       };
       
     } else {
-      console.log(`   ⚠️  Tidak ada data untuk hari ini`);
+      console.log(`   ⚠️  Tidak ada data untuk kemarin`);
       
       return {
         activeUsers: 0,
         pageViews: 0,
-        dataDate: getTodayDate(),
-        isTodayData: true,
-        note: 'Belum ada traffic hari ini'
+        adClicks: 0,
+        adImpressions: 0,
+        adRevenue: 0,
+        dataDate: getYesterdayDate(),
+        isYesterdayData: true,
+        note: 'Belum ada traffic kemarin'
       };
     }
 
@@ -153,24 +176,37 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
     return {
       activeUsers: 0,
       pageViews: 0,
-      dataDate: getTodayDate(),
+      adClicks: 0,
+      adImpressions: 0,
+      adRevenue: 0,
+      dataDate: getYesterdayDate(),
       error: error.message,
-      isTodayData: true
+      isYesterdayData: true
     };
   }
 }
 
 /**
- * Format laporan - FIXED (NO <small> TAG)
+ * Format laporan - DATA KEMARIN dengan keterangan delay
  */
 function formatCustomReport(userData, articleData) {
   const waktuSekarang = getCurrentTimeWIB();
   const userName = escapeHtml(userData.nama || userData.name || 'User');
   const userId = userData.id || 'N/A';
   
-  // Ambil data hari ini
-  const today = articleData.today || articleData; // Menjaga kompatibilitas jika struktur belum diupdate
+  // Ambil data kemarin
+  const data = articleData;
+  const tanggalLaporan = articleData.dataDate || getYesterdayDate();
   
+  // Format tanggal Indonesia untuk display
+  const tanggalIndoLaporan = new Date(tanggalLaporan).toLocaleDateString('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+
   // Shortlink display
   const shortlink = userData.shortlink || '';
   let linkDisplay = 'Tidak ada';
@@ -184,19 +220,7 @@ function formatCustomReport(userData, articleData) {
     articleTitle = articleTitle.substring(0, 32) + '...';
   }
 
-  // Hitung perbandingan jika data kemarin tersedia
-  let userComparison = '';
-  let viewsComparison = '';
-  let revenueComparison = '';
-  
-  if (articleData.yesterday) {
-    const yesterday = articleData.yesterday;
-    userComparison = formatComparison(today.activeUsers, yesterday.activeUsers);
-    viewsComparison = formatComparison(today.pageViews, yesterday.pageViews);
-    revenueComparison = formatRevenueComparison(today.adRevenue, yesterday.adRevenue);
-  }
-
-  // FORMAT LAPORAN BARU (Tanpa detail kemarin)
+  // FORMAT LAPORAN DENGAN DATA KEMARIN
   return `📈 <b>LAPORAN ${waktuSekarang}</b>
 
 👤 <b>Nama:</b> ${userName}
@@ -204,14 +228,17 @@ function formatCustomReport(userData, articleData) {
 🔗 <b>Link:</b> <code>https://${linkDisplay}</code>
 📄 <b>Artikel:</b> ${escapeHtml(articleTitle)}
 
-📊 <b>HARI INI (${getTodayDate()})</b>
-👥 <b>Active User:</b> ${today.activeUsers || 0} ${userComparison}
-👁️ <b>Views:</b> ${today.pageViews || 0} ${viewsComparison}
-💰 <b>Revenue:</b> ${formatCurrencyIDR(today.adRevenue || 0)} ${revenueComparison}
-🖱️ <b>Ad Clicks:</b> ${today.adClicks || 0}
-👀 <b>Ad Impressions:</b> ${today.adImpressions || 0}
+📊 <b>DATA TERAKHIR (${tanggalLaporan})</b>
+👥 <b>Active User:</b> ${data.activeUsers || 0}
+👁️ <b>Views:</b> ${data.pageViews || 0}
+💰 <b>Revenue:</b> ${formatCurrencyIDR(data.adRevenue || 0)}
+🖱️ <b>Ad Clicks:</b> ${data.adClicks || 0}
+👀 <b>Ad Impressions:</b> ${data.adImpressions || 0}
 
-<i>🕐 ${getTanggalIndo()} | Reset: 00:00 WIB</i>`;
+⚠️ <i>Data dihitung per hari sebelumnya pukul 15:30 WIB.</i>
+⚠️ <i>Data hari ini masih dalam pemrosesan oleh sistem GA4.</i>
+
+🕐 <i>${tanggalIndoLaporan} | Laporan dibuat: ${waktuSekarang} WIB</i>`;
 }
 
 /**
