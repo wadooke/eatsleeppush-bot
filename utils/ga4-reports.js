@@ -102,7 +102,7 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
     const pagePath = userData.ga4Path || userData.destinationUrl?.match(/https?:\/\/[^\/]+(\/.*)/)?.[1] || '/';
     const userName = userData.nama || userData.name || 'User';
 
-    console.log(`🔍 [GA4 Query KOMBINASI - FIXED] untuk: ${userName}`);
+    console.log(`🔍 [GA4 Query KOMBINASI - REVISI] untuk: ${userName}`);
     console.log(`   Path: ${pagePath}`);
 
     if (!pagePath || pagePath === '/') {
@@ -110,18 +110,18 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
     }
 
     // ============================================
-    // 1. QUERY REALTIME (Active Users & Views - 30m terakhir) - DIPERBAIKI
+    // 1. QUERY STANDARD "HARI INI" (Active Users & Views)
     // ============================================
-    let realtimeData = { activeUsers: 0, pageViews: 0 };
-    
+    let todayData = { activeUsers: 0, pageViews: 0 };
     try {
-      console.log(`   📡 Mengambil data realtime (dengan pagePath)...`);
-      const [realtimeResponse] = await analyticsDataClient.runRealtimeReport({
+      console.log(`   📊 Mengambil data hari ini (users & views)...`);
+      const [todayResponse] = await analyticsDataClient.runReport({
         property: `properties/${process.env.GA4_PROPERTY_ID}`,
-        dimensions: [{ name: 'pagePath' }], // Filter berdasarkan pagePath spesifik
+        dateRanges: [{ startDate: 'today', endDate: 'today' }], // Ambil data hari ini
+        dimensions: [{ name: 'pagePath' }],
         metrics: [
           { name: 'activeUsers' },
-          { name: 'screenPageViews' } // Metrik ini TERSEDIA untuk real-time[citation:1][citation:4]
+          { name: 'screenPageViews' }
         ],
         dimensionFilter: {
           filter: {
@@ -136,25 +136,23 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
         limit: 1
       });
 
-      if (realtimeResponse?.rows?.[0]) {
-        const row = realtimeResponse.rows[0];
-        realtimeData.activeUsers = parseInt(row.metricValues[0]?.value) || 0;
-        realtimeData.pageViews = parseInt(row.metricValues[1]?.value) || 0;
-        console.log(`   ✅ Data realtime: ${realtimeData.activeUsers} active users, ${realtimeData.pageViews} views`);
+      if (todayResponse?.rows?.[0]) {
+        const row = todayResponse.rows[0];
+        todayData.activeUsers = parseInt(row.metricValues[0]?.value) || 0;
+        todayData.pageViews = parseInt(row.metricValues[1]?.value) || 0;
+        console.log(`   ✅ Data hari ini: ${todayData.activeUsers} users, ${todayData.pageViews} views`);
       } else {
-        console.log(`   ⚠️  Tidak ada data realtime untuk path ini dalam 30 menit terakhir`);
+        console.log(`   ⚠️  Tidak ada data hari ini untuk path ini`);
       }
-      
-    } catch (realtimeError) {
-      console.error('   ⚠️  Gagal ambil data realtime:', realtimeError.message);
-      // Tetap lanjut ke query revenue
+    } catch (todayError) {
+      console.error('   ⚠️  Gagal ambil data hari ini:', todayError.message);
+      // Jangan gagal total, lanjut ke query revenue
     }
 
     // ============================================
-    // 2. QUERY STANDARD "KEMARIN" (Revenue) - TETAP
+    // 2. QUERY STANDARD "KEMARIN" (Revenue)
     // ============================================
     let yesterdayData = { adRevenue: 0, adClicks: 0, adImpressions: 0 };
-    
     try {
       console.log(`   📅 Mengambil data kemarin (revenue)...`);
       const [standardResponse] = await analyticsDataClient.runReport({
@@ -188,33 +186,27 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
       } else {
         console.log(`   ⚠️  Tidak ada data revenue kemarin untuk path ini`);
       }
-      
     } catch (standardError) {
       console.error('   ❌ Gagal ambil data kemarin:', standardError.message);
       // Jangan throw error, biarkan revenue tetap 0 untuk sementara
     }
 
     // ============================================
-    // 3. GABUNGKAN HASIL (STRUKTUR BARU)
+    // 3. GABUNGKAN HASIL
     // ============================================
     return {
-      // Data utama untuk laporan
-      activeUsers: realtimeData.activeUsers,      // Dari realtime (30m terakhir)
-      pageViews: realtimeData.pageViews,          // Dari realtime (30m terakhir)
+      activeUsers: todayData.activeUsers,         // Dari data "hari ini" (sudah diproses)
+      pageViews: todayData.pageViews,             // Dari data "hari ini" (sudah diproses)
       adRevenue: yesterdayData.adRevenue,         // Dari kemarin
       adClicks: yesterdayData.adClicks,           // Dari kemarin
       adImpressions: yesterdayData.adImpressions, // Dari kemarin
-      
-      // Data tambahan untuk logging dan debugging
       dataDate: getTodayDate(),
       yesterdayDate: getYesterdayDate(),
-      note: 'Active Users & Views: data 30 menit terakhir. Revenue: data hari kemarin yang telah diproses.',
+      note: 'Active Users & Views: data yang sudah diproses hingga saat ini. Revenue: data hari kemarin yang telah diproses penuh.',
       success: true
     };
-
   } catch (error) {
     console.error('❌ Error utama fetchUserArticleData:', error.message);
-    
     return {
       activeUsers: 0,
       pageViews: 0,
