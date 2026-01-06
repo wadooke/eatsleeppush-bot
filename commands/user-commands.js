@@ -167,51 +167,54 @@ ${rateLimitCheck.message}
     // 7. FORMAT LAPORAN
     const reportMessage = formatCustomReport(userDataWithId, articleData);
     
-// 8. EDIT PESAN DI LAPORAN MENJADI HASIL - FORMAT SIMPLE
-if (laporanProcessingMsg && laporanProcessingMsg.message_id) {
-  // Format waktu sekarang
-  const waktuSekarang = new Date().toLocaleString('id-ID', {
-    timeZone: 'Asia/Jakarta',
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  }).replace(/\./g, ':');
+    // 8. EDIT PESAN DI LAPORAN MENJADI HASIL - FORMAT SIMPLE
+    if (laporanProcessingMsg && laporanProcessingMsg.message_id) {
+      // Format waktu sekarang
+      const waktuSekarang = new Date().toLocaleString('id-ID', {
+        timeZone: 'Asia/Jakarta',
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }).replace(/\./g, ':');
   
-  // Shortlink tanpa https://
-  const shortlink = userData.shortlink || '';
-  let shortlinkDisplay = shortlink;
-  if (shortlinkDisplay.startsWith('https://')) {
-    shortlinkDisplay = shortlinkDisplay.substring(8);
-  } else if (shortlinkDisplay.startsWith('http://')) {
-    shortlinkDisplay = shortlinkDisplay.substring(7);
-  }
+      // Shortlink: tampilkan dengan https:// tapi sebagai teks biasa
+      const shortlink = userData.shortlink || '';
+      let shortlinkDisplay = 'Tidak ada';
   
-  // Format laporan SIMPLE
-  const reportMessage = `
-📈 <b>LAPORAN REALTIME - SAAT INI</b>
-⏰ <b>Waktu</b>      : ${waktuSekarang}
-👋 <b>Nama</b>      : ${escapeHtml(userData.nama)}
-👥 <b>User ID</b>   : ${userId}
-👥 <b>Link</b>      : ${shortlinkDisplay}
-👥 <b>Artikel</b>   : ${escapeHtml(userData.articleTitle || 'N/A')}
-📊 <b>Active User</b> : ${articleData.activeUsers || 0}
-👁️ <b>Views</b>      : ${articleData.pageViews || 0}
+      if (shortlink) {
+        // Hilangkan https:// atau http:// untuk tampilan lebih clean
+        let display = shortlink;
+        if (display.startsWith('https://')) {
+          display = display.substring(8);
+        } else if (display.startsWith('http://')) {
+          display = display.substring(7);
+        }
+    
+        // Tampilkan dalam tag <code> agar tidak jadi link aktif
+        // Telegram tidak akan parse <code>content</code> sebagai link
+        shortlinkDisplay = `<code>https://${display}</code>`;
+      }
+  
+      // Format laporan SIMPLE
+      const reportMessage = `
+    📈 <b>LAPORAN REALTIME - SAAT INI</b>
+    ⏰ <b>Waktu</b>      : ${waktuSekarang}
+    👋 <b>Nama</b>      : ${escapeHtml(userData.nama)}
+    👥 <b>User ID</b>   : ${userId}
+    👥 <b>Link</b>      : ${shortlinkDisplay}
+    👥 <b>Artikel</b>   : ${escapeHtml(userData.articleTitle || 'N/A')}
+    📊 <b>Active User</b> : ${articleData.activeUsers || 0}
+    👁️ <b>Views</b>      : ${articleData.pageViews || 0}
 
-<i>Periode: Hari ini (reset 00:00 WIB)</i>`;
+    <i>Periode: Hari ini (reset 00:00 WIB)</i>`;
   
-  await bot.editMessageText(reportMessage, {
-    chat_id: chatId,
-    message_id: laporanProcessingMsg.message_id,
-    parse_mode: 'HTML'
-  });
-} else {
-  // Jika tidak ada message_id, kirim sebagai pesan baru
-  await bot.sendMessage(chatId, reportMessage, {
-    parse_mode: 'HTML',
-    message_thread_id: laporanThreadId
-  });
-}
+      await bot.editMessageText(reportMessage, {
+        chat_id: chatId,
+        message_id: laporanProcessingMsg.message_id,
+        parse_mode: 'HTML'
+      });
+    }
 
     // 9. UPDATE PESAN DI THREAD ASAL (SUKSES) - SIMPLE VERSION
     if (sourceProcessingMsg && sourceProcessingMsg.message_id) {
