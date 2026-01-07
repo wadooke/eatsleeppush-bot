@@ -74,6 +74,26 @@ setTimeout(async () => {
   }
   
   console.log('✅ Telegram Bot initialized');
+
+  // ============================================
+  // NEW: INITIALIZE STRICT ACCESS CONTROL BOT HANDLER
+  // ============================================
+  console.log('🤖 Initializing Telegram Bot with Access Control...');
+
+  try {
+    // Initialize the new Telegram Bot Handler with strict access control
+    const TelegramBotHandler = require('./services/telegram-bot');
+    console.log('✅ Telegram Bot Handler initialized');
+  
+    // HENTIKAN/COMMENT KODE HANDLER LAMA di bawah ini
+    // karena TelegramBotHandler baru akan menangani semua commands
+    console.log('⚠️  Legacy command handlers will be overridden by strict access control system');
+  
+  } catch (error) {
+    console.error('❌ Failed to initialize Telegram Bot Handler:', error.message);
+    console.error('   Error details:', error);
+    console.log('⚠️  Bot will use legacy handlers (strict access control may not work)');
+  }
   
   // ============================================
   // REVENUE REPORTER & SCHEDULER INTEGRATION
