@@ -14,6 +14,18 @@ class StrictAccessControl {
     this.ADMIN_CHAT_ID = process.env.ADMIN_IDS || '185472876';
     this.TELEGRAM_GROUP_CHAT_ID = process.env.TELEGRAM_GROUP_CHAT_ID;
     
+    // Thread permissions
+    this.USER_ALLOWED_THREADS = [
+      this.DISKUSI_UMUM_THREAD_ID,
+      this.APLIKASI_THREAD_ID,
+      this.TUTORIAL_THREAD_ID
+    ];
+    
+    this.BOT_ONLY_THREADS = [
+      this.LAPORAN_THREAD_ID,
+      this.PENGUMUMAN_THREAD_ID
+    ];
+    
     // Auto-kick configuration - DIPERPANJANG MENJADI 30 MENIT
     this.AUTO_KICK_ENABLED = true;
     this.KICK_DELAY_MINUTES = 30; // ⏰ 30 MENIT sebelum kick
@@ -27,6 +39,8 @@ class StrictAccessControl {
     console.log(`   Auto-Kick: ${this.AUTO_KICK_ENABLED ? 'ENABLED' : 'DISABLED'}`);
     console.log(`   Kick Delay: ${this.KICK_DELAY_MINUTES} minutes`);
     console.log(`   Admin: ${this.ADMIN_CHAT_ID}`);
+    console.log(`   User Threads: [${this.USER_ALLOWED_THREADS.join(', ')}]`);
+    console.log(`   Bot-Only Threads: [${this.BOT_ONLY_THREADS.join(', ')}]`);
   }
 
   /**
@@ -200,7 +214,7 @@ class StrictAccessControl {
           this.kickUser(bot, this.TELEGRAM_GROUP_CHAT_ID, userId, userName);
         }
         
-        // 3. Hapus pesan user (jika ingin)
+        // 3. Hapus pesan user
         try {
           await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
         } catch (e) {}
@@ -208,24 +222,27 @@ class StrictAccessControl {
         return; // BLOCK akses total
       }
       
-      // Untuk REGISTERED & ADMIN: cek command atau message permission
-      if (messageText.startsWith('/')) {
-        // Cek command permission
-        if (this.isCommandAllowed(messageText, userId, threadId)) {
-          return callback();
-        } else {
-          await this.sendAccessDeniedMessage(bot, msg, userType, threadId);
-          return;
+      // Untuk REGISTERED & ADMIN: cek thread permission
+      const accessResult = this.checkThreadAccess(userId, threadId);
+      
+      if (!accessResult.allowed) {
+        // AUTO-REMOVE untuk user di thread bot-only (3,9) - SILENT MODE
+        if (accessResult.reason === 'bot_only_thread') {
+          try {
+            await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+          } catch (e) {}
+          return; // Hapus pesan tanpa warning
         }
-      } else {
-        // Cek message sending permission
-        if (this.canSendMessage(userId, threadId)) {
-          return callback();
-        } else {
+        
+        // Kirim warning untuk alasan lain
+        if (!accessResult.silent && userType === 'registered') {
           await this.sendAccessDeniedMessage(bot, msg, userType, threadId);
-          return;
         }
+        return;
       }
+      
+      // Akses diizinkan, lanjutkan ke callback
+      return callback();
       
     } catch (error) {
       console.error('❌ Error in strict access control:', error.message);
@@ -234,65 +251,86 @@ class StrictAccessControl {
   }
 
   /**
-   * Cek apakah command diizinkan (STRICT VERSION)
+   * Cek akses berdasarkan thread
+   */
+  checkThreadAccess(userId, threadId) {
+    const userType = this.getUserType(userId);
+    
+    // 1. ADMIN: Access to ALL threads
+    if (userType === 'admin') {
+      return { allowed: true, reason: 'admin_full_access' };
+    }
+    
+    // 2. REGISTERED USER:
+    if (userType === 'registered') {
+      // a) Auto-remove SILENT dari bot-only threads (3,9)
+      if (this.BOT_ONLY_THREADS.includes(threadId)) {
+        return { 
+          allowed: false, 
+          reason: 'bot_only_thread',
+          silent: true  // NO WARNING MESSAGE
+        };
+      }
+      
+      // b) Allow in user threads (0,7,5)
+      if (this.USER_ALLOWED_THREADS.includes(threadId)) {
+        return { allowed: true, reason: 'user_in_allowed_thread' };
+      }
+      
+      // c) Deny untuk thread lain dengan warning
+      return { 
+        allowed: false, 
+        reason: 'thread_not_allowed',
+        silent: false  // Show warning
+      };
+    }
+    
+    return { allowed: false, reason: 'unregistered_user' };
+  }
+
+  /**
+   * Cek apakah command diizinkan
    */
   isCommandAllowed(command, userId, threadId) {
     const userType = this.getUserType(userId);
     const commandName = command.split(' ')[0].split('@')[0];
     
-    // 1. Bot bisa semua command (untuk mengirim)
+    // 1. Bot bisa semua command
     if (userType === 'bot') return true;
     
     // 2. UNREGISTERED USER: TIDAK BISA APA-APA
-    if (userType === 'unregistered') {
-      return false;
-    }
+    if (userType === 'unregistered') return false;
     
-    // 3. Admin bisa semua command di thread 1,7,5
-    if (userType === 'admin') {
-      const adminThreads = [this.DISKUSI_UMUM_THREAD_ID, this.APLIKASI_THREAD_ID, this.TUTORIAL_THREAD_ID];
-      const currentThread = threadId || 0;
-      return adminThreads.includes(currentThread);
-    }
+    // 3. ADMIN: Bisa semua command di SEMUA thread
+    if (userType === 'admin') return true;
     
-    // 4. User terdaftar hanya bisa /cekvar dan /userid di thread 1
+    // 4. USER TERDAFTAR: 
+    // Hanya command tertentu di thread user (0,7,5)
     if (userType === 'registered') {
-      const currentThread = threadId || 0;
-      
-      if (currentThread === this.DISKUSI_UMUM_THREAD_ID) {
-        return ['/cekvar', '/userid'].includes(commandName);
+      // Cek apakah di thread yang diizinkan
+      if (!this.USER_ALLOWED_THREADS.includes(threadId)) {
+        return false;
       }
       
-      return false;
+      // Command yang diizinkan untuk user
+      const userCommands = [
+        '/cekvar', '/userid', '/profil', '/cekvar_stats',
+        '/start', '/scheduler_status', '/bantuan'
+      ];
+      
+      return userCommands.includes(commandName);
     }
     
     return false;
   }
 
   /**
-   * Cek apakah user bisa kirim pesan/gambar di thread (STRICT)
+   * Cek apakah user bisa kirim pesan/gambar
+   * (Fungsi ini masih digunakan oleh beberapa bagian kode)
    */
   canSendMessage(userId, threadId) {
-    const userType = this.getUserType(userId);
-    const currentThread = threadId || 0;
-    
-    // 1. Bot bisa kirim di semua thread
-    if (userType === 'bot') return true;
-    
-    // 2. UNREGISTERED USER: TIDAK BISA KIRIM APA-APA
-    if (userType === 'unregistered') return false;
-    
-    // 3. Admin bisa kirim di thread 1,7,5
-    if (userType === 'admin') {
-      return [this.DISKUSI_UMUM_THREAD_ID, this.APLIKASI_THREAD_ID, this.TUTORIAL_THREAD_ID].includes(currentThread);
-    }
-    
-    // 4. User terdaftar bisa kirim hanya di thread 1,7,5
-    if (userType === 'registered') {
-      return [this.DISKUSI_UMUM_THREAD_ID, this.APLIKASI_THREAD_ID, this.TUTORIAL_THREAD_ID].includes(currentThread);
-    }
-    
-    return false;
+    const accessResult = this.checkThreadAccess(userId, threadId);
+    return accessResult.allowed;
   }
 
   /**
@@ -305,38 +343,29 @@ class StrictAccessControl {
   }
 
   /**
-   * Kirim pesan access denied untuk registered/admin
+   * Kirim pesan access denied untuk registered user
+   * (Hanya untuk kasus khusus, tidak untuk thread 3,9)
    */
   async sendAccessDeniedMessage(bot, msg, userType, threadId) {
     const chatId = msg.chat?.id;
     const thread = threadId || 0;
     
-    let message = '';
-    
-    if (userType === 'admin') {
-      message = `❌ <b>Akses Ditolak untuk Admin</b>\n\n` +
-                `Admin hanya bisa berinteraksi di thread:\n` +
-                `✅ #DISKUSI-UMUM (ID: ${this.DISKUSI_UMUM_THREAD_ID})\n` +
-                `✅ #APLIKASI (ID: ${this.APLIKASI_THREAD_ID})\n` +
-                `✅ #TUTORIAL (ID: ${this.TUTORIAL_THREAD_ID})\n\n` +
-                `<i>Anda saat ini di thread ID: ${thread}</i>`;
-    } 
-    else if (userType === 'registered') {
-      message = `❌ <b>Akses Ditolak untuk User Terdaftar</b>\n\n` +
-                `Aturan penggunaan:\n` +
-                `✅ <b>Command yang diizinkan:</b> /cekvar, /userid\n` +
-                `✅ <b>Hanya di thread:</b> #DISKUSI-UMUM (ID: ${this.DISKUSI_UMUM_THREAD_ID})\n` +
-                `✅ <b>Bisa kirim pesan/gambar di:</b> Thread ${this.DISKUSI_UMUM_THREAD_ID}, ${this.APLIKASI_THREAD_ID}, ${this.TUTORIAL_THREAD_ID}\n\n` +
-                `<i>Anda saat ini di thread ID: ${thread}</i>`;
-    }
-    
-    try {
-      await bot.sendMessage(chatId, message, {
-        parse_mode: 'HTML',
-        ...(thread && { message_thread_id: thread })
-      });
-    } catch (error) {
-      console.error('❌ Failed to send access denied message:', error.message);
+    // Hanya kirim warning untuk registered user di thread selain 3,9
+    if (userType === 'registered' && !this.BOT_ONLY_THREADS.includes(thread)) {
+      const message = `❌ <b>Akses Ditolak untuk User Terdaftar</b>\n\n` +
+                      `Aturan penggunaan:\n` +
+                      `✅ <b>Command yang diizinkan:</b> /cekvar, /userid\n` +
+                      `✅ <b>Bisa kirim pesan/gambar di:</b> Thread ${this.USER_ALLOWED_THREADS.join(', ')}\n\n` +
+                      `<i>Anda saat ini di thread ID: ${thread}</i>`;
+      
+      try {
+        await bot.sendMessage(chatId, message, {
+          parse_mode: 'HTML',
+          ...(thread && { message_thread_id: thread })
+        });
+      } catch (error) {
+        console.error('❌ Failed to send access denied message:', error.message);
+      }
     }
   }
 
@@ -426,6 +455,7 @@ class StrictAccessControl {
       hasScheduledKick,
       kickTimeLeft: hasScheduledKick ? `${this.KICK_DELAY_MINUTES} minutes` : 'No',
       allowedCommands: this.getAllowedCommands(userType),
+      allowedThreads: userType === 'admin' ? 'ALL' : this.USER_ALLOWED_THREADS,
       canSendMessages: true
     };
   }
