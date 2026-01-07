@@ -1,4 +1,4 @@
-// index.js - FULL VERSION dengan Revenue Reporter & Scheduler
+// index.js - FULL VERSION dengan Revenue Reporter & Scheduler (DIKOREKSI)
 const express = require('express');
 
 // Load environment ONCE
@@ -41,11 +41,9 @@ setTimeout(async () => {
   
   console.log('✅ GA4 Client initialized successfully');
   
-  // Test GA4 connection
+  // Test GA4 connection dengan cara baru
   console.log('🧪 [DIAGNOSTICS] Starting GA4 connection test...');
   console.log(`   Property ID: "${GA4_PROPERTY_ID}"`);
-  console.log(`   Service Account: ${process.env.GA4_SERVICE_ACCOUNT_EMAIL || 'Not set'}`);
-  console.log('   Testing with simple query...');
   
   try {
     const [response] = await analyticsDataClient.runReport({
@@ -140,6 +138,7 @@ setTimeout(async () => {
       try {
         if (revenueReporter) {
           await revenueReporter.sendDailyReport();
+          await ctx.reply('✅ Laporan revenue harian berhasil diproses!');
         } else {
           await ctx.reply('❌ Revenue reporter tidak tersedia. Cek log server.');
         }
@@ -155,10 +154,13 @@ setTimeout(async () => {
       }
       
       const status = botScheduler?.isRunning ? '🟢 BERJALAN' : '🔴 BERHENTI';
+      const statusData = botScheduler?.getStatus?.() || {};
+      
       await ctx.reply(
         `📊 <b>Status Scheduler</b>\n\n` +
         `<b>Status:</b> ${status}\n` +
         `<b>Laporan Revenue:</b> 12:00 WIB setiap hari\n` +
+        `<b>Task Aktif:</b> ${statusData.activeTaskCount || 0}\n` +
         `<b>Command Test:</b> /report_revenue\n\n` +
         `<i>System time: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB</i>`,
         { parse_mode: 'HTML' }
@@ -178,6 +180,7 @@ setTimeout(async () => {
       try {
         if (revenueReporter) {
           await revenueReporter.sendDailyReport();
+          await bot.sendMessage(msg.chat.id, '✅ Laporan revenue harian berhasil diproses!');
         } else {
           await bot.sendMessage(msg.chat.id, '❌ Revenue reporter tidak tersedia. Cek log server.');
         }
@@ -193,10 +196,13 @@ setTimeout(async () => {
       }
       
       const status = botScheduler?.isRunning ? '🟢 BERJALAN' : '🔴 BERHENTI';
+      const statusData = botScheduler?.getStatus?.() || {};
+      
       await bot.sendMessage(msg.chat.id,
         `📊 <b>Status Scheduler</b>\n\n` +
         `<b>Status:</b> ${status}\n` +
         `<b>Laporan Revenue:</b> 12:00 WIB setiap hari\n` +
+        `<b>Task Aktif:</b> ${statusData.activeTaskCount || 0}\n` +
         `<b>Command Test:</b> /report_revenue\n\n` +
         `<i>System time: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB</i>`,
         { parse_mode: 'HTML' }
@@ -226,11 +232,11 @@ setTimeout(async () => {
   console.log('✅ Webhook endpoint configured: /telegram-webhook');
   
   // ============================================
-  // STARTUP MESSAGE
+  // STARTUP MESSAGE DENGAN ERROR HANDLING YANG BAIK
   // ============================================
   
   // Send startup message after everything is ready
-  setTimeout(() => {
+  setTimeout(async () => {
     const startupTime = new Date().toLocaleString('id-ID', {
       timeZone: 'Asia/Jakarta',
       hour12: false
@@ -244,20 +250,26 @@ setTimeout(async () => {
       `⚡ <b>Status:</b> ONLINE\n\n` +
       `<i>Bot ready to process commands.</i>`;
     
-    // Send to admin
+    // Send to admin DENGAN ERROR HANDLING YANG BAIK
     try {
       if (isTelegraf) {
-        bot.telegram.sendMessage(ADMIN_CHAT_ID, startupMessage, {
+        await bot.telegram.sendMessage(ADMIN_CHAT_ID, startupMessage, {
           parse_mode: 'HTML'
         });
       } else if (isNodeTelegramBotApi) {
-        bot.sendMessage(ADMIN_CHAT_ID, startupMessage, {
+        await bot.sendMessage(ADMIN_CHAT_ID, startupMessage, {
           parse_mode: 'HTML'
         });
       }
       console.log('📨 Startup message sent to admin');
     } catch (error) {
-      console.error('❌ Failed to send startup message:', error.message);
+      // Error 403 Forbidden biasanya karena admin belum memulai bot
+      if (error.code === 403 || error.message.includes('Forbidden') || error.message.includes('bot can\'t initiate conversation')) {
+        console.warn('⚠️  Admin belum memulai bot. Pesan startup tidak dikirim.');
+        console.warn('   Silakan kirim /start ke bot dari akun admin terlebih dahulu.');
+      } else {
+        console.error('❌ Failed to send startup message:', error.message);
+      }
     }
   }, 15000);
   
@@ -283,10 +295,68 @@ app.get('/health', (req, res) => {
     stats: {
       users: Object.keys(userDb.users || {}).length,
       ga4_configured: !!process.env.GA4_PROPERTY_ID,
-      admin_configured: !!process.env.ADMIN_CHAT_ID
+      admin_configured: !!process.env.ADMIN_CHAT_ID,
+      scheduler_running: false // Will be true after initialization
     }
   });
 });
+
+// Manual report trigger endpoint (untuk testing)
+app.get('/trigger-report', async (req, res) => {
+  const apiKey = req.query.api_key;
+  const validApiKey = process.env.ADMIN_API_KEY || 'test123';
+  
+  if (apiKey !== validApiKey) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  try {
+    // Coba jalankan report manual
+    const revenueReporter = require('./services/revenue-reporter');
+    const { initializeGA4Client } = require('./services/ga4-client');
+    
+    const analyticsDataClient = initializeGA4Client();
+    const bot = require('./services/telegram-bot').initializeTelegramBot(analyticsDataClient);
+    
+    const reporter = new revenueReporter(analyticsDataClient, bot);
+    await reporter.sendDailyReport();
+    
+    res.json({ success: true, message: 'Report triggered successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// List reports endpoint
+app.get('/reports', async (req, res) => {
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
+    const reportsDir = path.join(__dirname, 'reports');
+    
+    try {
+      await fs.access(reportsDir);
+      const files = await fs.readdir(reportsDir);
+      const htmlFiles = files.filter(f => f.endsWith('.html')).map(f => ({
+        name: f,
+        path: `/reports/${f}`,
+        url: `${req.protocol}://${req.get('host')}/reports/${f}`
+      }));
+      
+      res.json({
+        count: htmlFiles.length,
+        reports: htmlFiles
+      });
+    } catch {
+      res.json({ count: 0, reports: [], message: 'Reports directory not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Serve static reports
+app.use('/reports', express.static('reports'));
 
 // Simple root endpoint
 app.get('/', (req, res) => {
@@ -296,19 +366,43 @@ app.get('/', (req, res) => {
     <head>
       <title>EatSleepPush GA4 Bot</title>
       <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
+        body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
         .container { max-width: 800px; margin: 0 auto; }
-        .status { padding: 20px; background: #f0f9ff; border-radius: 8px; }
+        .status { padding: 20px; background: #f0f9ff; border-radius: 8px; margin-bottom: 20px; }
+        .card { background: white; padding: 15px; border-radius: 6px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu { display: flex; gap: 10px; margin-top: 20px; }
+        .menu a { background: #4f46e5; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px; }
       </style>
     </head>
     <body>
       <div class="container">
         <h1>🤖 EatSleepPush GA4 Bot</h1>
+        
         <div class="status">
-          <p><strong>Status:</strong> 🟢 Online</p>
-          <p><strong>Service:</strong> Telegram bot for GA4 analytics</p>
-          <p><strong>Features:</strong> User reports, Revenue reports, Automatic scheduling</p>
-          <p><a href="/health">Health Check</a></p>
+          <h2>Status System</h2>
+          <div class="card">
+            <p><strong>Status:</strong> 🟢 Online</p>
+            <p><strong>Service:</strong> Telegram bot for GA4 analytics</p>
+            <p><strong>Features:</strong> User reports, Revenue reports, Automatic scheduling</p>
+          </div>
+        </div>
+        
+        <div class="status">
+          <h2>Quick Links</h2>
+          <div class="menu">
+            <a href="/health">Health Check</a>
+            <a href="/reports">View Reports</a>
+            <a href="/trigger-report?api_key=test123">Test Report</a>
+          </div>
+        </div>
+        
+        <div class="status">
+          <h2>Laporan Otomatis</h2>
+          <div class="card">
+            <p><strong>Waktu:</strong> Setiap hari jam 12:00 WIB</p>
+            <p><strong>Format:</strong> HTML file dikirim ke Telegram</p>
+            <p><strong>Status:</strong> Aktif setelah bot startup</p>
+          </div>
         </div>
       </div>
     </body>
@@ -358,6 +452,7 @@ const server = app.listen(PORT, () => {
   console.log(`🌐 Server bot berjalan di port ${PORT}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
   console.log(`🔗 Webhook: http://localhost:${PORT}/telegram-webhook`);
+  console.log(`🔗 Reports: http://localhost:${PORT}/reports`);
 });
 
 // Server error handling
