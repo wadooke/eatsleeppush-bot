@@ -1,12 +1,10 @@
 {
   "8462501080": {
     "name": "Meningan Pemalang",
-    "status": "active",
-    "role": "user"  // atau hapus field role sama sekali
+    "status": "active"
   },
   "185472876": {
-    "name": "iwak sothil", 
-    "status": "active",
-    "role": "admin"  // <-- HANYA ANDA YANG ADMIN
+    "name": "iwak sothil",
+    "status": "active"
   }
 }
