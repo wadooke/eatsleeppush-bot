@@ -232,10 +232,11 @@ function formatCustomReport(userData, articleData) {
   const userName = escapeHtml(userData.nama || userData.name || 'User');
   const userId = userData.id || 'N/A';
   
-  // Shortlink display
+  // Shortlink display - tetap dalam format <code>
   const shortlink = userData.shortlink || '';
   let linkDisplay = 'Tidak ada';
   if (shortlink) {
+    // Hapus protokol http/https untuk ditampilkan, tapi tetap pakai <code>
     linkDisplay = shortlink.replace(/^https?:\/\//, '');
   }
   
@@ -248,33 +249,37 @@ function formatCustomReport(userData, articleData) {
   // Format tanggal kemarin untuk display
   const tanggalKemarinIndo = getTanggalIndo('yesterday');
 
-  // FORMAT LAPORAN UTAMA
+  // ============================================
+  // FORMAT LAPORAN UTAMA (DIPERBAIKI)
+  // ============================================
+  
   let reportMessage = `📈 <b>LAPORAN ${waktuSekarang}</b>\n\n`;
   reportMessage += `👤 <b>Nama:</b> ${userName}\n`;
   reportMessage += `👤 <b>ID:</b> ${userId}\n`;
-  reportMessage += `🔗 <b>Link:</b> <code>https://${linkDisplay}</code>\n`;
+  reportMessage += `🔗 <b>Link:</b> <code>https://${linkDisplay}</code>\n`; // Font disamakan dengan format lainnya
   reportMessage += `📄 <b>Artikel:</b> ${escapeHtml(articleTitle)}\n\n`;
   
-  reportMessage += `📊 <b>PERFORMANCE REAL-TIME</b>\n`;
-  reportMessage += `👥 <b>Active User:</b> ${articleData.activeUsers || 0} <i>(30 menit terakhir)</i>\n`;
-  reportMessage += `👁️ <b>Views:</b> ${articleData.pageViews || 0} <i>(30 menit terakhir)</i>\n\n`;
+  reportMessage += `📊 <b>PERFORMANCE HARI INI</b>\n`; // Judul diubah
+  reportMessage += `👥 <b>Active User:</b> ${articleData.activeUsers || 0}\n`; // "(30 menit terakhir)" dihapus
+  reportMessage += `👁️ <b>Views:</b> ${articleData.pageViews || 0}\n\n`; // "(30 menit terakhir)" dihapus
   
   reportMessage += `💰 <b>REVENUE (${tanggalKemarinIndo})</b>\n`;
   reportMessage += `📈 <b>Revenue:</b> ${formatCurrencyIDR(articleData.adRevenue || 0)}\n`;
   reportMessage += `🖱️ <b>Ad Clicks:</b> ${articleData.adClicks || 0}\n`;
   reportMessage += `👀 <b>Ad Impressions:</b> ${articleData.adImpressions || 0}\n\n`;
   
+  // Tambahkan note error jika ada
   if (articleData.error) {
     reportMessage += `⚠️ <b>CATATAN:</b> <code>${escapeHtml(articleData.error)}</code>\n\n`;
   }
   
-  reportMessage += `ℹ️ <i>Data real-time update setiap 30 menit.</i>\n`;
+  // Keterangan footer
+  reportMessage += `ℹ️ <i>Data performance dihitung sejak 00:00 WIB hingga saat ini.</i>\n`;
   reportMessage += `ℹ️ <i>Data revenue diupdate setiap hari pukul 15:30 WIB.</i>\n\n`;
   reportMessage += `🕐 <i>Laporan dibuat: ${waktuSekarang} WIB</i>`;
 
   return reportMessage;
 }
-
 /**
  * Format laporan sederhana (backward compatibility)
  */
