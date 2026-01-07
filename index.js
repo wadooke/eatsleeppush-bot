@@ -1,4 +1,4 @@
-// index.js - FULL VERSION dengan Revenue Reporter & Scheduler (FINAL)
+// index.js - FULL VERSION dengan Revenue Reporter & Scheduler (FINAL FIXED)
 const express = require('express');
 
 // Load environment ONCE
@@ -126,11 +126,11 @@ setTimeout(async () => {
   console.log(`🔧 Bot library detected: ${isTelegraf ? 'Telegraf' : isNodeTelegramBotApi ? 'node-telegram-bot-api' : 'Unknown'}`);
   
   // ============================================
-  // START COMMAND HANDLER (UNTUK SEMUA USER)
+  // START COMMAND HANDLER (UNTUK SEMUA USER) - FIXED HTML MODE
   // ============================================
   
   if (isTelegraf) {
-    // For Telegraf - Handler untuk /start
+    // For Telegraf - Handler untuk /start (FIXED HTML MODE)
     bot.command('start', async (ctx) => {
       const userId = ctx.from.id.toString();
       const userName = ctx.from.first_name || 'Pengguna';
@@ -139,24 +139,24 @@ setTimeout(async () => {
       
       await ctx.reply(
         `Halo ${userName}! 👋\n\n` +
-        `Selamat datang di *EatSleepPush GA4 Bot*.\n\n` +
-        `🤖 *Bot ini dapat:*\n` +
+        `Selamat datang di <b>EatSleepPush GA4 Bot</b>.\n\n` +
+        `🤖 <b>Bot ini dapat:</b>\n` +
         `• Mengirim laporan analytics harian\n` +
         `• Menampilkan statistik GA4\n\n` +
-        `🛠 *Status Sistem:*\n` +
+        `🛠 <b>Status Sistem:</b>\n` +
         `• GA4: ✅ Terhubung\n` +
         `• Scheduler: ✅ Aktif\n` +
         `• Laporan: 12:00 WIB setiap hari\n\n` +
-        `📋 *Commands yang tersedia:*\n` +
+        `📋 <b>Commands yang tersedia:</b>\n` +
         `/scheduler_status - Cek status scheduler\n` +
         `/start - Tampilkan pesan ini\n\n` +
-        `_Admin memiliki akses ke command tambahan._`,
-        { parse_mode: 'Markdown' }
+        `<i>Admin memiliki akses ke command tambahan.</i>`,
+        { parse_mode: 'HTML' }  // FIXED: Changed from 'Markdown' to 'HTML'
       );
     });
     
   } else if (isNodeTelegramBotApi) {
-    // For node-telegram-bot-api - Handler untuk /start
+    // For node-telegram-bot-api - Handler untuk /start (FIXED HTML MODE)
     bot.onText(/\/start/, async (msg) => {
       const userId = msg.from.id.toString();
       const userName = msg.from.first_name || 'Pengguna';
@@ -165,19 +165,19 @@ setTimeout(async () => {
       
       await bot.sendMessage(msg.chat.id,
         `Halo ${userName}! 👋\n\n` +
-        `Selamat datang di *EatSleepPush GA4 Bot*.\n\n` +
-        `🤖 *Bot ini dapat:*\n` +
+        `Selamat datang di <b>EatSleepPush GA4 Bot</b>.\n\n` +
+        `🤖 <b>Bot ini dapat:</b>\n` +
         `• Mengirim laporan analytics harian\n` +
         `• Menampilkan statistik GA4\n\n` +
-        `🛠 *Status Sistem:*\n` +
+        `🛠 <b>Status Sistem:</b>\n` +
         `• GA4: ✅ Terhubung\n` +
         `• Scheduler: ✅ Aktif\n` +
         `• Laporan: 12:00 WIB setiap hari\n\n` +
-        `📋 *Commands yang tersedia:*\n` +
+        `📋 <b>Commands yang tersedia:</b>\n` +
         `/scheduler_status - Cek status scheduler\n` +
         `/start - Tampilkan pesan ini\n\n` +
-        `_Admin memiliki akses ke command tambahan._`,
-        { parse_mode: 'Markdown' }
+        `<i>Admin memiliki akses ke command tambahan.</i>`,
+        { parse_mode: 'HTML' }  // FIXED: Changed from 'Markdown' to 'HTML'
       );
     });
   }
@@ -293,32 +293,32 @@ setTimeout(async () => {
   }
   
   // ============================================
-  // UNKNOWN COMMAND HANDLER
+  // UNKNOWN COMMAND HANDLER - FIXED HTML MODE
   // ============================================
   
   if (isTelegraf) {
-    // Handler untuk command yang tidak dikenal (Telegraf)
+    // Handler untuk command yang tidak dikenal (Telegraf) - FIXED
     bot.on('text', async (ctx) => {
       const messageText = ctx.message.text;
       
       // Cek jika pesan dimulai dengan "/" tapi bukan command yang dikenal
-      if (messageText.startsWith('/') && 
+      if (messageText && messageText.startsWith('/') && 
           !['/start', '/report_revenue', '/scheduler_status'].some(cmd => 
             messageText.startsWith(cmd))) {
         
         await ctx.reply(
-          `❓ Command tidak dikenali: "${messageText}"\n\n` +
-          `📋 *Commands yang tersedia:*\n` +
+          `❓ <b>Command tidak dikenali:</b> <code>${messageText}</code>\n\n` +
+          `📋 <b>Commands yang tersedia:</b>\n` +
           `/start - Tampilkan menu utama\n` +
           `/scheduler_status - Cek status scheduler\n\n` +
-          `_Gunakan /start untuk melihat semua command._`,
-          { parse_mode: 'Markdown' }
+          `<i>Gunakan /start untuk melihat semua command.</i>`,
+          { parse_mode: 'HTML' }  // FIXED: Changed from 'Markdown' to 'HTML'
         );
       }
     });
     
   } else if (isNodeTelegramBotApi) {
-    // Handler untuk command yang tidak dikenal (node-telegram-bot-api)
+    // Handler untuk command yang tidak dikenal (node-telegram-bot-api) - FIXED
     bot.on('message', async (msg) => {
       const messageText = msg.text;
       
@@ -328,12 +328,12 @@ setTimeout(async () => {
             messageText.startsWith(cmd))) {
         
         await bot.sendMessage(msg.chat.id,
-          `❓ Command tidak dikenali: "${messageText}"\n\n` +
-          `📋 *Commands yang tersedia:*\n` +
+          `❓ <b>Command tidak dikenali:</b> <code>${messageText}</code>\n\n` +
+          `📋 <b>Commands yang tersedia:</b>\n` +
           `/start - Tampilkan menu utama\n` +
           `/scheduler_status - Cek status scheduler\n\n` +
-          `_Gunakan /start untuk melihat semua command._`,
-          { parse_mode: 'Markdown' }
+          `<i>Gunakan /start untuk melihat semua command.</i>`,
+          { parse_mode: 'HTML' }  // FIXED: Changed from 'Markdown' to 'HTML'
         );
       }
     });
@@ -415,13 +415,14 @@ app.get('/health', (req, res) => {
     status: 'OK', 
     timestamp: new Date().toISOString(),
     service: 'EatSleepPush GA4 Bot',
-    version: '2.0.0',
+    version: '2.0.1', // Updated version
     features: {
       user_reports: true,
       revenue_reports: true,
       automatic_scheduling: true,
       start_command: true,
-      unknown_command_handler: true
+      unknown_command_handler: true,
+      parse_mode: 'HTML' // Fixed parse mode
     },
     stats: {
       users: Object.keys(userDb.users || {}).length,
@@ -516,7 +517,7 @@ app.get('/', (req, res) => {
           <div class="card">
             <p><strong>Status:</strong> 🟢 Online</p>
             <p><strong>Service:</strong> Telegram bot for GA4 analytics</p>
-            <p><strong>Version:</strong> 2.0.0 (with Start Command)</p>
+            <p><strong>Version:</strong> 2.0.1 (HTML Parse Mode Fixed)</p>
           </div>
         </div>
         
