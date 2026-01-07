@@ -1,7 +1,7 @@
 // telegram-bot.js - Handler utama dengan Strict Access Control
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
-const accessControl = require('./utils/access-control');
+const accessControl = require('../utils/access-control');
 
 class TelegramBotHandler {
   constructor() {
