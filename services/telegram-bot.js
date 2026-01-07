@@ -77,46 +77,33 @@ function setupEventHandlers(bot) {
   });
 }
 
+// Di telegram-bot.js, update setupCommandHandlers:
 function setupCommandHandlers(bot, analyticsDataClient, botUsername) {
-  // Middleware untuk semua incoming messages
+  const accessControl = require('../utils/access-control');
+  
+  // STRICT Middleware untuk semua incoming messages
   bot.on('message', (msg) => {
     try {
-      // Skip jika bukan text message atau dari bot sendiri
-      if (!msg.text || msg.from?.is_bot) return;
+      // Skip jika dari bot sendiri
+      if (msg.from?.is_bot) return;
       
-      const chatId = msg.chat.id;
-      const threadId = msg.message_thread_id || 0;
-      const userId = msg.from.id;
-      const userName = msg.from.first_name || 'User';
-      const fullCommand = msg.text.split(' ')[0];
+      console.log(`📨 STRICT Filter: Message from ${msg.from?.id} (${msg.from?.first_name})`);
       
-      // Extract command name (remove @username jika ada)
-      const command = fullCommand.split('@')[0];
-      
-      console.log(`📨 Message from ${userName} (${userId}) in thread ${threadId}: ${fullCommand} → ${command}`);
-      
-      // Apply thread access check middleware
-      userCommands.checkThreadAccess(bot, msg, () => {
-        // Jika lolos access control, proses command
+      // Gunakan STRICT access control middleware
+      accessControl.checkAccess(bot, msg, () => {
+        // HANYA jika lolos strict access control, proses command
+        const fullCommand = msg.text?.split(' ')[0] || '';
+        const command = fullCommand.split('@')[0];
         processCommand(bot, msg, analyticsDataClient, command, botUsername);
       });
       
     } catch (error) {
-      console.error('❌ Error in message middleware:', error.message);
+      console.error('❌ Error in strict message middleware:', error.message);
     }
   });
   
-  // Setup error handlers
-  bot.on('polling_error', (error) => {
-    console.error('❌ Telegram polling error:', error.message);
-  });
-  
-  bot.on('webhook_error', (error) => {
-    console.error('❌ Telegram webhook error:', error.message);
-  });
-  
-  console.log(`   ✅ Command handlers registered with access control`);
-  console.log(`   ✅ Bot username support: @${botUsername}`);
+  console.log(`   ✅ STRICT Access Control System Activated`);
+  console.log(`   🔴 Unregistered users will be AUTO-KICKED`);
 }
 
 function processCommand(bot, msg, analyticsDataClient, command, botUsername) {
