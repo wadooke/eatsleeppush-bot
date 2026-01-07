@@ -1,4 +1,4 @@
-// services/telegram-bot.js - Telegram bot setup dengan Access Control & Thread Management
+// services/telegram-bot.js - Telegram bot setup dengan Access Control & Thread Management (FIXED)
 const TelegramBot = require('node-telegram-bot-api');
 const adminCommands = require('../commands/admin-commands');
 const userCommands = require('../commands/user-commands');
@@ -18,6 +18,9 @@ function initializeTelegramBot(analyticsDataClient) {
     return null;
   }
   
+  // Bot username untuk command matching
+  const BOT_USERNAME = process.env.BOT_USERNAME || 'eatsleeppush_bot';
+  
   // Inisialisasi bot TANPA polling (hanya untuk webhook)
   const bot = new TelegramBot(token, {
     polling: false, // SANGAT PENTING: polling harus false
@@ -31,6 +34,7 @@ function initializeTelegramBot(analyticsDataClient) {
   bot.getMe()
     .then(me => {
       console.log(`✅ Bot connected: @${me.username} (${me.first_name})`);
+      console.log(`   Bot Username: @${BOT_USERNAME} (from config)`);
     })
     .catch(error => {
       console.error(`❌ Cannot connect to Telegram API: ${error.message}`);
@@ -38,7 +42,7 @@ function initializeTelegramBot(analyticsDataClient) {
   
   // Setup command handlers dengan middleware access control
   console.log('   Setting up command handlers with thread access control...');
-  setupCommandHandlers(bot, analyticsDataClient);
+  setupCommandHandlers(bot, analyticsDataClient, BOT_USERNAME);
   
   // Setup webhook (hanya sekali)
   if (!webhookSetupAttempted) {
@@ -73,7 +77,7 @@ function setupEventHandlers(bot) {
   });
 }
 
-function setupCommandHandlers(bot, analyticsDataClient) {
+function setupCommandHandlers(bot, analyticsDataClient, botUsername) {
   // Middleware untuk semua incoming messages
   bot.on('message', (msg) => {
     try {
@@ -84,14 +88,17 @@ function setupCommandHandlers(bot, analyticsDataClient) {
       const threadId = msg.message_thread_id || 0;
       const userId = msg.from.id;
       const userName = msg.from.first_name || 'User';
-      const command = msg.text.split(' ')[0];
+      const fullCommand = msg.text.split(' ')[0];
       
-      console.log(`📨 Message from ${userName} (${userId}) in thread ${threadId}: ${command}`);
+      // Extract command name (remove @username jika ada)
+      const command = fullCommand.split('@')[0];
+      
+      console.log(`📨 Message from ${userName} (${userId}) in thread ${threadId}: ${fullCommand} → ${command}`);
       
       // Apply thread access check middleware
       userCommands.checkThreadAccess(bot, msg, () => {
         // Jika lolos access control, proses command
-        processCommand(bot, msg, analyticsDataClient);
+        processCommand(bot, msg, analyticsDataClient, command, botUsername);
       });
       
     } catch (error) {
@@ -109,64 +116,98 @@ function setupCommandHandlers(bot, analyticsDataClient) {
   });
   
   console.log(`   ✅ Command handlers registered with access control`);
+  console.log(`   ✅ Bot username support: @${botUsername}`);
 }
 
-function processCommand(bot, msg, analyticsDataClient) {
+function processCommand(bot, msg, analyticsDataClient, command, botUsername) {
   const text = msg.text;
   const chatId = msg.chat.id;
   const threadId = msg.message_thread_id || 0;
   
   try {
+    // Helper function untuk validasi command dengan @username
+    const isCommand = (cmd) => {
+      // Check if command matches exactly or with @username
+      const regex = new RegExp(`^${cmd}(@${botUsername})?(\\s|$)`);
+      return regex.test(text);
+    };
+    
+    // Helper untuk extract arguments
+    const getArgs = (cmd) => {
+      const regex = new RegExp(`^${cmd}(@${botUsername})?\\s+(.+)$`);
+      const match = text.match(regex);
+      return match ? match[match.length - 1] : null;
+    };
+    
     // Admin commands (bisa diakses dari thread manapun oleh admin)
-    if (text.startsWith('/daftar ')) {
-      const match = text.match(/\/daftar (.+)/);
-      if (match) adminCommands.handleDaftar(bot, msg, match);
+    if (isCommand('/daftar')) {
+      const args = getArgs('/daftar');
+      if (args) adminCommands.handleDaftar(bot, msg, args);
     } 
-    else if (text === '/lihat_user') {
+    else if (isCommand('/lihat_user')) {
       adminCommands.handleLihatUser(bot, msg);
     } 
-    else if (text.startsWith('/hapus_user ')) {
-      const match = text.match(/\/hapus_user (.+)/);
-      if (match) adminCommands.handleHapusUser(bot, msg, match);
+    else if (isCommand('/hapus_user')) {
+      const args = getArgs('/hapus_user');
+      if (args) adminCommands.handleHapusUser(bot, msg, args);
     }
-    else if (text.startsWith('/reset_rate_limit ')) {
-      const match = text.match(/\/reset_rate_limit (.+)/);
-      if (match) adminCommands.handleResetRateLimit(bot, msg, match);
+    else if (isCommand('/reset_rate_limit')) {
+      const args = getArgs('/reset_rate_limit');
+      if (args) adminCommands.handleResetRateLimit(bot, msg, args);
     }
     
     // User commands (subject to thread access control)
-    else if (text === '/userid') {
+    else if (isCommand('/userid')) {
       userCommands.handleUserid(bot, msg);
     } 
-    else if (text === '/cekvar') {
+    else if (isCommand('/cekvar')) {
       userCommands.handleCekvar(bot, msg, analyticsDataClient);
     } 
-    else if (text === '/cekvar_stats') {
+    else if (isCommand('/cekvar_stats')) {
       userCommands.handleCekvarStats(bot, msg);
     }
-    else if (text === '/profil') {
+    else if (isCommand('/profil')) {
       userCommands.handleProfil(bot, msg);
     }
-    else if (text === '/bantuan') {
+    else if (isCommand('/bantuan')) {
       userCommands.handleBantuan(bot, msg);
     }
     
     // Report commands (admin only)
-    else if (text === '/laporan_sekarang') {
+    else if (isCommand('/laporan_sekarang')) {
       reportCommands.handleLaporanSekarang(bot, msg, analyticsDataClient);
     } 
-    else if (text === '/debug_ga4') {
+    else if (isCommand('/debug_ga4')) {
       reportCommands.handleDebugGA4(bot, msg, analyticsDataClient);
     }
     
-    // Unknown command
-    else if (text.startsWith('/')) {
-      console.log(`❓ Unknown command: ${text}`);
-      // Optional: kirim pesan bantuan untuk command tidak dikenali
-      if (text !== '/start') {
+    // Handle /start command (delegasi ke index.js)
+    else if (isCommand('/start')) {
+      // Biarkan index.js menangani /start command
+      console.log(`   ⏩ /start command forwarded to index.js handler`);
+      // Tidak melakukan apa-apa, biarkan handler di index.js yang menangani
+    }
+    else if (isCommand('/scheduler_status') || isCommand('/report_revenue')) {
+      // Biarkan index.js menangani command ini
+      console.log(`   ⏩ ${command} command forwarded to index.js handler`);
+      // Tidak melakukan apa-apa, biarkan handler di index.js yang menangani
+    }
+    
+    // Unknown command - HANYA untuk command yang benar-benar tidak dikenali
+    else if (command.startsWith('/')) {
+      console.log(`❓ Unknown command in telegram-bot.js: ${text}`);
+      
+      // Cek apakah ini command untuk index.js
+      const indexJsCommands = ['/start', '/scheduler_status', '/report_revenue'];
+      const isForIndexJs = indexJsCommands.some(cmd => 
+        new RegExp(`^${cmd}(@${botUsername})?`).test(text)
+      );
+      
+      if (!isForIndexJs) {
+        // Kirim pesan bantuan HANYA untuk command yang benar-benar tidak dikenali
         bot.sendMessage(chatId, 
-          `❓ Perintah tidak dikenali: <code>${text}</code>\n\n` +
-          `Gunakan /bantuan untuk melihat daftar perintah yang tersedia.`,
+          `❓ <b>Perintah tidak dikenali:</b> <code>${text}</code>\n\n` +
+          `Gunakan <code>/bantuan</code> untuk melihat daftar perintah yang tersedia.`,
           {
             parse_mode: 'HTML',
             ...(threadId && { message_thread_id: threadId })
@@ -176,14 +217,24 @@ function processCommand(bot, msg, analyticsDataClient) {
     }
     
   } catch (error) {
-    console.error('❌ Error processing command:', error.message);
+    console.error('❌ Error processing command in telegram-bot.js:', error.message);
     console.error(error.stack);
     
     // Kirim error message ke user
     try {
+      const escapeHtml = (str) => {
+        if (!str) return '';
+        return str
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      };
+      
       bot.sendMessage(chatId,
         `❌ <b>Terjadi kesalahan sistem</b>\n\n` +
-        `<code>${userCommands.escapeHtml(error.message)}</code>\n\n` +
+        `<code>${escapeHtml(error.message)}</code>\n\n` +
         `Silakan coba lagi atau hubungi admin jika masalah berlanjut.`,
         {
           parse_mode: 'HTML',
@@ -329,6 +380,10 @@ async function sendStartupMessage(bot, webhookActive) {
       `*⚡ RATE LIMITING:*\n` +
       `• /cekvar cooldown: ${process.env.CEKVAR_COOLDOWN_MINUTES || 30} menit\n` +
       `• Maksimal: ${process.env.MAX_REQUESTS_PER_HOUR || 10}x per jam\n\n` +
+      
+      `*🆕 COMMAND BARU (Support @username):*\n` +
+      `• /start - Menu utama (support @eatsleeppush_bot)\n` +
+      `• /scheduler_status - Status scheduler (support @username)\n\n` +
       
       `_Bot siap melayani! Gunakan /bantuan untuk panduan lengkap._`;
     
