@@ -1,5 +1,5 @@
-// utils/ga4-reports.js - FULL VERSION
-// Menampilkan Active Users & Views (realtime) + Revenue (kemarin)
+// utils/ga4-reports.js - SIMPLE VERSION
+// Fokus pada Active Users & Views hari ini saja
 
 const { BetaAnalyticsDataClient } = require('@google-analytics/data');
 
@@ -21,38 +21,10 @@ function escapeHtml(text) {
 }
 
 /**
- * Helper untuk format currency IDR
- */
-function formatCurrencyIDR(amount) {
-  if (!amount && amount !== 0) return 'Rp 0';
-  
-  const numericAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
-  
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(numericAmount);
-}
-
-/**
  * Helper untuk mendapatkan tanggal hari ini dalam format YYYY-MM-DD
  */
 function getTodayDate() {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-/**
- * Helper untuk mendapatkan tanggal kemarin dalam format YYYY-MM-DD
- */
-function getYesterdayDate() {
-  const now = new Date();
-  now.setDate(now.getDate() - 1);
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
@@ -75,13 +47,8 @@ function getCurrentTimeWIB() {
 /**
  * Helper untuk format tanggal Indonesia lengkap
  */
-function getTanggalIndo(dateType = 'today') {
-  const date = new Date();
-  if (dateType === 'yesterday') {
-    date.setDate(date.getDate() - 1);
-  }
-  
-  return date.toLocaleDateString('id-ID', {
+function getTanggalIndo() {
+  return new Date().toLocaleDateString('id-ID', {
     timeZone: 'Asia/Jakarta',
     weekday: 'long',
     day: 'numeric',
@@ -91,128 +58,81 @@ function getTanggalIndo(dateType = 'today') {
 }
 
 // ============================================
-// MAIN GA4 DATA FETCHING FUNCTION
+// MAIN GA4 DATA FETCHING FUNCTION (SIMPLE)
 // ============================================
 
 /**
- * Fetch GA4 data - Realtime untuk Users/Views + Standard untuk Revenue (kemarin)
+ * Fetch GA4 data - HANYA Active Users & Views untuk hari ini
  */
 async function fetchUserArticleData(analyticsDataClient, userData) {
   try {
+    // Ambil pagePath dari data user
     const pagePath = userData.ga4Path || userData.destinationUrl?.match(/https?:\/\/[^\/]+(\/.*)/)?.[1] || '/';
     const userName = userData.nama || userData.name || 'User';
 
-    console.log(`🔍 [GA4 Query KOMBINASI - REVISI] untuk: ${userName}`);
+    console.log(`🔍 [GA4 Query SIMPLE] untuk: ${userName}`);
     console.log(`   Path: ${pagePath}`);
 
     if (!pagePath || pagePath === '/') {
       throw new Error('Page path tidak valid');
     }
 
-    // ============================================
-    // 1. QUERY STANDARD "HARI INI" (Active Users & Views)
-    // ============================================
-    let todayData = { activeUsers: 0, pageViews: 0 };
-    try {
-      console.log(`   📊 Mengambil data hari ini (users & views)...`);
-      const [todayResponse] = await analyticsDataClient.runReport({
-        property: `properties/${process.env.GA4_PROPERTY_ID}`,
-        dateRanges: [{ startDate: 'today', endDate: 'today' }], // Ambil data hari ini
-        dimensions: [{ name: 'pagePath' }],
-        metrics: [
-          { name: 'activeUsers' },
-          { name: 'screenPageViews' }
-        ],
-        dimensionFilter: {
-          filter: {
-            fieldName: 'pagePath',
-            stringFilter: {
-              matchType: 'EXACT',
-              value: pagePath,
-              caseSensitive: false
-            }
+    // QUERY SEDERHANA: Hanya ambil activeUsers & screenPageViews untuk hari ini
+    const [response] = await analyticsDataClient.runReport({
+      property: `properties/${process.env.GA4_PROPERTY_ID}`,
+      dateRanges: [{ startDate: 'today', endDate: 'today' }],
+      dimensions: [{ name: 'pagePath' }],
+      metrics: [
+        { name: 'activeUsers' },
+        { name: 'screenPageViews' }
+      ],
+      dimensionFilter: {
+        filter: {
+          fieldName: 'pagePath',
+          stringFilter: {
+            matchType: 'EXACT',
+            value: pagePath,
+            caseSensitive: false
           }
-        },
-        limit: 1
-      });
+        }
+      },
+      limit: 1
+    });
 
-      if (todayResponse?.rows?.[0]) {
-        const row = todayResponse.rows[0];
-        todayData.activeUsers = parseInt(row.metricValues[0]?.value) || 0;
-        todayData.pageViews = parseInt(row.metricValues[1]?.value) || 0;
-        console.log(`   ✅ Data hari ini: ${todayData.activeUsers} users, ${todayData.pageViews} views`);
-      } else {
-        console.log(`   ⚠️  Tidak ada data hari ini untuk path ini`);
-      }
-    } catch (todayError) {
-      console.error('   ⚠️  Gagal ambil data hari ini:', todayError.message);
-      // Jangan gagal total, lanjut ke query revenue
+    // PROSES HASIL
+    if (response && response.rows && response.rows.length > 0) {
+      const row = response.rows[0];
+      const activeUsers = parseInt(row.metricValues[0]?.value) || 0;
+      const pageViews = parseInt(row.metricValues[1]?.value) || 0;
+      
+      console.log(`   ✅ Hasil: ${activeUsers} users, ${pageViews} views`);
+      
+      return {
+        activeUsers: activeUsers,
+        pageViews: pageViews,
+        dataDate: getTodayDate(),
+        note: 'Data hari ini (00:00 WIB - sekarang)',
+        success: true
+      };
+      
+    } else {
+      console.log(`   ⚠️  Tidak ada data hari ini`);
+      
+      return {
+        activeUsers: 0,
+        pageViews: 0,
+        dataDate: getTodayDate(),
+        note: 'Belum ada traffic hari ini',
+        success: true
+      };
     }
 
-    // ============================================
-    // 2. QUERY STANDARD "KEMARIN" (Revenue)
-    // ============================================
-    let yesterdayData = { adRevenue: 0, adClicks: 0, adImpressions: 0 };
-    try {
-      console.log(`   📅 Mengambil data kemarin (revenue)...`);
-      const [standardResponse] = await analyticsDataClient.runReport({
-        property: `properties/${process.env.GA4_PROPERTY_ID}`,
-        dateRanges: [{ startDate: 'yesterday', endDate: 'yesterday' }],
-        dimensions: [{ name: 'pagePath' }],
-        metrics: [
-          { name: 'publisherAdRevenue' },
-          { name: 'publisherAdClicks' },
-          { name: 'publisherAdImpressions' }
-        ],
-        dimensionFilter: {
-          filter: {
-            fieldName: 'pagePath',
-            stringFilter: {
-              matchType: 'EXACT',
-              value: pagePath,
-              caseSensitive: false
-            }
-          }
-        },
-        limit: 1
-      });
-
-      if (standardResponse?.rows?.[0]) {
-        const row = standardResponse.rows[0];
-        yesterdayData.adRevenue = parseFloat(row.metricValues[0]?.value) || 0;
-        yesterdayData.adClicks = parseInt(row.metricValues[1]?.value) || 0;
-        yesterdayData.adImpressions = parseInt(row.metricValues[2]?.value) || 0;
-        console.log(`   ✅ Data kemarin: Revenue: ${yesterdayData.adRevenue}`);
-      } else {
-        console.log(`   ⚠️  Tidak ada data revenue kemarin untuk path ini`);
-      }
-    } catch (standardError) {
-      console.error('   ❌ Gagal ambil data kemarin:', standardError.message);
-      // Jangan throw error, biarkan revenue tetap 0 untuk sementara
-    }
-
-    // ============================================
-    // 3. GABUNGKAN HASIL
-    // ============================================
-    return {
-      activeUsers: todayData.activeUsers,         // Dari data "hari ini" (sudah diproses)
-      pageViews: todayData.pageViews,             // Dari data "hari ini" (sudah diproses)
-      adRevenue: yesterdayData.adRevenue,         // Dari kemarin
-      adClicks: yesterdayData.adClicks,           // Dari kemarin
-      adImpressions: yesterdayData.adImpressions, // Dari kemarin
-      dataDate: getTodayDate(),
-      yesterdayDate: getYesterdayDate(),
-      note: 'Active Users & Views: data yang sudah diproses hingga saat ini. Revenue: data hari kemarin yang telah diproses penuh.',
-      success: true
-    };
   } catch (error) {
-    console.error('❌ Error utama fetchUserArticleData:', error.message);
+    console.error('❌ Error fetchUserArticleData:', error.message);
+    
     return {
       activeUsers: 0,
       pageViews: 0,
-      adRevenue: 0,
-      adClicks: 0,
-      adImpressions: 0,
       dataDate: getTodayDate(),
       error: error.message,
       success: false
@@ -221,22 +141,21 @@ async function fetchUserArticleData(analyticsDataClient, userData) {
 }
 
 // ============================================
-// REPORT FORMATTING FUNCTION
+// REPORT FORMATTING FUNCTION (SIMPLE)
 // ============================================
 
 /**
- * Format laporan - Gabungan Realtime + Data Kemarin
+ * Format laporan - HANYA Active Users & Views
  */
 function formatCustomReport(userData, articleData) {
   const waktuSekarang = getCurrentTimeWIB();
   const userName = escapeHtml(userData.nama || userData.name || 'User');
   const userId = userData.id || 'N/A';
   
-  // Shortlink display - tetap dalam format <code>
+  // Shortlink display
   const shortlink = userData.shortlink || '';
   let linkDisplay = 'Tidak ada';
   if (shortlink) {
-    // Hapus protokol http/https untuk ditampilkan, tapi tetap pakai <code>
     linkDisplay = shortlink.replace(/^https?:\/\//, '');
   }
   
@@ -246,119 +165,59 @@ function formatCustomReport(userData, articleData) {
     articleTitle = articleTitle.substring(0, 32) + '...';
   }
 
-  // Format tanggal kemarin untuk display
-  const tanggalKemarinIndo = getTanggalIndo('yesterday');
-
-  // ============================================
-  // FORMAT LAPORAN UTAMA (DIPERBAIKI)
-  // ============================================
-  
+  // FORMAT LAPORAN SIMPLE
   let reportMessage = `📈 <b>LAPORAN ${waktuSekarang}</b>\n\n`;
   reportMessage += `👤 <b>Nama:</b> ${userName}\n`;
   reportMessage += `👤 <b>ID:</b> ${userId}\n`;
-  reportMessage += `🔗 <b>Link:</b> <code>https://${linkDisplay}</code>\n`; // Font disamakan dengan format lainnya
+  reportMessage += `🔗 <b>Link:</b> <code>https://${linkDisplay}</code>\n`;
   reportMessage += `📄 <b>Artikel:</b> ${escapeHtml(articleTitle)}\n\n`;
   
-  reportMessage += `📊 <b>PERFORMANCE HARI INI</b>\n`; // Judul diubah
-  reportMessage += `👥 <b>Active User:</b> ${articleData.activeUsers || 0}\n`; // "(30 menit terakhir)" dihapus
-  reportMessage += `👁️ <b>Views:</b> ${articleData.pageViews || 0}\n\n`; // "(30 menit terakhir)" dihapus
-  
-  reportMessage += `💰 <b>REVENUE (${tanggalKemarinIndo})</b>\n`;
-  reportMessage += `📈 <b>Revenue:</b> ${formatCurrencyIDR(articleData.adRevenue || 0)}\n`;
-  reportMessage += `🖱️ <b>Ad Clicks:</b> ${articleData.adClicks || 0}\n`;
-  reportMessage += `👀 <b>Ad Impressions:</b> ${articleData.adImpressions || 0}\n\n`;
+  reportMessage += `📊 <b>PERFORMANCE HARI INI</b>\n`;
+  reportMessage += `👥 <b>Active User:</b> <b>${articleData.activeUsers || 0}</b>\n`;
+  reportMessage += `👁️ <b>Views:</b> <b>${articleData.pageViews || 0}</b>\n\n`;
   
   // Tambahkan note error jika ada
   if (articleData.error) {
     reportMessage += `⚠️ <b>CATATAN:</b> <code>${escapeHtml(articleData.error)}</code>\n\n`;
   }
   
-  // Keterangan footer
-  reportMessage += `ℹ️ <i>Data performance dihitung sejak 00:00 WIB hingga saat ini.</i>\n`;
-  reportMessage += `ℹ️ <i>Data revenue diupdate setiap hari pukul 15:30 WIB.</i>\n\n`;
+  reportMessage += `ℹ️ <i>Data dihitung sejak 00:00 WIB hingga saat ini.</i>\n\n`;
   reportMessage += `🕐 <i>Laporan dibuat: ${waktuSekarang} WIB</i>`;
 
   return reportMessage;
 }
+
+// ============================================
+// DEBUG FUNCTIONS (OPTIONAL)
+// ============================================
+
 /**
- * Format laporan sederhana (backward compatibility)
+ * Debug function untuk test GA4 connection
  */
-function formatSimpleReport(userData, articleData) {
-  const waktuSekarang = getCurrentTimeWIB();
-  const userName = escapeHtml(userData.nama || userData.name || 'User');
-  
-  const shortlink = userData.shortlink || '';
-  let linkDisplay = 'Tidak ada';
-  if (shortlink) {
-    linkDisplay = shortlink.replace(/^https?:\/\//, '');
-  }
-  
-  let articleTitle = userData.articleTitle || 'N/A';
-  if (articleTitle.length > 35) {
-    articleTitle = articleTitle.substring(0, 32) + '...';
-  }
-
-  return `📈 <b>LAPORAN ${waktuSekarang}</b>\n\n` +
-         `👤 <b>Nama:</b> ${userName}\n` +
-         `👤 <b>ID:</b> ${userData.id}\n` +
-         `🔗 <b>Link:</b> <code>https://${linkDisplay}</code>\n` +
-         `📄 <b>Artikel:</b> ${escapeHtml(articleTitle)}\n` +
-         `👥 <b>Active User:</b> ${articleData.activeUsers || 0}\n` +
-         `👁️ <b>Views:</b> ${articleData.pageViews || 0}\n` +
-         `💰 <b>Revenue:</b> ${formatCurrencyIDR(articleData.adRevenue || 0)}\n\n` +
-         `<i>🕐 ${getTanggalIndo()} | Reset: 00:00 WIB</i>`;
-}
-
-// Tambahkan fungsi ini di ga4-reports.js
-async function testBasicAPI(analyticsDataClient) {
-  console.log('🧪 Testing BASIC GA4 API Connection...');
+async function debugGA4Connection(analyticsDataClient) {
   try {
     const [response] = await analyticsDataClient.runReport({
       property: `properties/${process.env.GA4_PROPERTY_ID}`,
-      dateRanges: [{ startDate: 'yesterday', endDate: 'yesterday' }],
-      dimensions: [{ name: 'country' }],
-      metrics: [{ name: 'activeUsers' }],
-      limit: 5
+      dateRanges: [{ startDate: 'yesterday', endDate: 'today' }],
+      dimensions: [{ name: 'date' }],
+      metrics: [
+        { name: 'activeUsers' },
+        { name: 'screenPageViews' }
+      ],
+      limit: 2
     });
-    console.log('✅ Basic API Test SUCCESS. Sample data:', response.rows?.slice(0, 2));
-    return true;
-  } catch (error) {
-    console.error('❌ Basic API Test FAILED:', error.message, error.details);
-    return false;
-  }
-}
 
-// Tambahkan fungsi ini di ga4-reports.js
-async function listAvailableMetricsDimensions(analyticsDataClient) {
-  try {
-    const [metadata] = await analyticsDataClient.getMetadata({
-      name: `properties/${process.env.GA4_PROPERTY_ID}/metadata`
-    });
-    
-    console.log('=== METRIKS STANDARD YANG TERSEDIA ===');
-    metadata.metrics.forEach(m => {
-      if (m.apiName === 'activeUsers' || m.apiName === 'screenPageViews' || 
-          m.apiName === 'publisherAdRevenue' || m.apiName === 'sessions') {
-        console.log(`✅ ${m.apiName} - ${m.displayName}`);
-      }
-    });
-    
-    console.log('\n=== METRIKS REAL-TIME YANG TERSEDIA ===');
-    metadata.realtimeMetrics.forEach(m => {
-      console.log(`📡 ${m.apiName} - ${m.displayName}`);
-    });
-    
-    console.log('\n=== DIMENSI YANG TERSEDIA ===');
-    metadata.dimensions.forEach(d => {
-      if (d.apiName === 'pagePath' || d.apiName === 'country') {
-        console.log(`📍 ${d.apiName} - ${d.displayName}`);
-      }
-    });
-    
-    return metadata;
+    return {
+      success: true,
+      propertyId: process.env.GA4_PROPERTY_ID,
+      data: response.rows || []
+    };
   } catch (error) {
-    console.error('❌ Gagal mendapatkan metadata:', error.message);
-    return null;
+    return {
+      success: false,
+      error: error.message,
+      propertyId: process.env.GA4_PROPERTY_ID
+    };
   }
 }
 
@@ -367,14 +226,16 @@ async function listAvailableMetricsDimensions(analyticsDataClient) {
 // ============================================
 
 module.exports = {
+  // Main functions
   fetchUserArticleData,
   formatCustomReport,
-  formatSimpleReport,
+  
+  // Debug functions
+  debugGA4Connection,
+  
+  // Helper functions
   escapeHtml,
-  formatCurrencyIDR,
   getTodayDate,
-  getYesterdayDate,
   getCurrentTimeWIB,
-  getTanggalIndo,
-  testBasicAPI
+  getTanggalIndo
 };
