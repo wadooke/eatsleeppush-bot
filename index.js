@@ -1,4 +1,4 @@
-// index.js - FULL VERSION dengan Revenue Reporter & Scheduler (DIKOREKSI)
+// index.js - FULL VERSION dengan Revenue Reporter & Scheduler (FINAL)
 const express = require('express');
 
 // Load environment ONCE
@@ -41,9 +41,10 @@ setTimeout(async () => {
   
   console.log('✅ GA4 Client initialized successfully');
   
-  // Test GA4 connection dengan cara baru
+  // Test GA4 connection
   console.log('🧪 [DIAGNOSTICS] Starting GA4 connection test...');
   console.log(`   Property ID: "${GA4_PROPERTY_ID}"`);
+  console.log('   Testing with simple query...');
   
   try {
     const [response] = await analyticsDataClient.runReport({
@@ -115,7 +116,7 @@ setTimeout(async () => {
   }
   
   // ============================================
-  // MANUAL COMMANDS FOR ADMIN
+  // DETERMINE BOT LIBRARY TYPE
   // ============================================
   
   // Determine bot library type
@@ -123,6 +124,67 @@ setTimeout(async () => {
   const isNodeTelegramBotApi = typeof bot.on === 'function' && typeof bot.sendMessage === 'function';
   
   console.log(`🔧 Bot library detected: ${isTelegraf ? 'Telegraf' : isNodeTelegramBotApi ? 'node-telegram-bot-api' : 'Unknown'}`);
+  
+  // ============================================
+  // START COMMAND HANDLER (UNTUK SEMUA USER)
+  // ============================================
+  
+  if (isTelegraf) {
+    // For Telegraf - Handler untuk /start
+    bot.command('start', async (ctx) => {
+      const userId = ctx.from.id.toString();
+      const userName = ctx.from.first_name || 'Pengguna';
+      
+      console.log(`🤝 User ${userName} (${userId}) memulai bot dengan /start`);
+      
+      await ctx.reply(
+        `Halo ${userName}! 👋\n\n` +
+        `Selamat datang di *EatSleepPush GA4 Bot*.\n\n` +
+        `🤖 *Bot ini dapat:*\n` +
+        `• Mengirim laporan analytics harian\n` +
+        `• Menampilkan statistik GA4\n\n` +
+        `🛠 *Status Sistem:*\n` +
+        `• GA4: ✅ Terhubung\n` +
+        `• Scheduler: ✅ Aktif\n` +
+        `• Laporan: 12:00 WIB setiap hari\n\n` +
+        `📋 *Commands yang tersedia:*\n` +
+        `/scheduler_status - Cek status scheduler\n` +
+        `/start - Tampilkan pesan ini\n\n` +
+        `_Admin memiliki akses ke command tambahan._`,
+        { parse_mode: 'Markdown' }
+      );
+    });
+    
+  } else if (isNodeTelegramBotApi) {
+    // For node-telegram-bot-api - Handler untuk /start
+    bot.onText(/\/start/, async (msg) => {
+      const userId = msg.from.id.toString();
+      const userName = msg.from.first_name || 'Pengguna';
+      
+      console.log(`🤝 User ${userName} (${userId}) memulai bot dengan /start`);
+      
+      await bot.sendMessage(msg.chat.id,
+        `Halo ${userName}! 👋\n\n` +
+        `Selamat datang di *EatSleepPush GA4 Bot*.\n\n` +
+        `🤖 *Bot ini dapat:*\n` +
+        `• Mengirim laporan analytics harian\n` +
+        `• Menampilkan statistik GA4\n\n` +
+        `🛠 *Status Sistem:*\n` +
+        `• GA4: ✅ Terhubung\n` +
+        `• Scheduler: ✅ Aktif\n` +
+        `• Laporan: 12:00 WIB setiap hari\n\n` +
+        `📋 *Commands yang tersedia:*\n` +
+        `/scheduler_status - Cek status scheduler\n` +
+        `/start - Tampilkan pesan ini\n\n` +
+        `_Admin memiliki akses ke command tambahan._`,
+        { parse_mode: 'Markdown' }
+      );
+    });
+  }
+  
+  // ============================================
+  // MANUAL COMMANDS FOR ADMIN ONLY
+  // ============================================
   
   // Add manual commands based on bot library
   if (isTelegraf) {
@@ -149,19 +211,29 @@ setTimeout(async () => {
     
     bot.command('scheduler_status', async (ctx) => {
       const userId = ctx.from.id.toString();
-      if (userId !== ADMIN_CHAT_ID) {
-        return ctx.reply('❌ Hanya admin yang bisa menggunakan command ini.');
-      }
+      const userName = ctx.from.first_name || 'Pengguna';
       
+      // Scheduler status bisa dilihat semua user
       const status = botScheduler?.isRunning ? '🟢 BERJALAN' : '🔴 BERHENTI';
       const statusData = botScheduler?.getStatus?.() || {};
       
+      let adminInfo = '';
+      if (userId === ADMIN_CHAT_ID) {
+        adminInfo = `\n👑 <b>Anda adalah Admin</b>\n` +
+                   `<b>Command khusus:</b> /report_revenue\n`;
+      }
+      
       await ctx.reply(
-        `📊 <b>Status Scheduler</b>\n\n` +
+        `📊 <b>Status Scheduler - EatSleepPush GA4 Bot</b>\n\n` +
+        `<b>Halo ${userName}!</b>\n` +
+        `${adminInfo}\n` +
         `<b>Status:</b> ${status}\n` +
-        `<b>Laporan Revenue:</b> 12:00 WIB setiap hari\n` +
         `<b>Task Aktif:</b> ${statusData.activeTaskCount || 0}\n` +
-        `<b>Command Test:</b> /report_revenue\n\n` +
+        `<b>Laporan Revenue:</b> 12:00 WIB setiap hari\n\n` +
+        `<b>Jadwal Berikutnya:</b>\n` +
+        `• Revenue Report: ${statusData.nextRevenueReport?.timeOnly || 'N/A'}\n` +
+        `• Database Backup: ${statusData.nextBackup?.timeOnly || 'N/A'}\n` +
+        `• File Cleanup: ${statusData.nextCleanup?.timeOnly || 'N/A'}\n\n` +
         `<i>System time: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB</i>`,
         { parse_mode: 'HTML' }
       );
@@ -191,22 +263,79 @@ setTimeout(async () => {
     
     bot.onText(/\/scheduler_status/, async (msg) => {
       const userId = msg.from.id.toString();
-      if (userId !== ADMIN_CHAT_ID) {
-        return bot.sendMessage(msg.chat.id, '❌ Hanya admin yang bisa menggunakan command ini.');
-      }
+      const userName = msg.from.first_name || 'Pengguna';
       
+      // Scheduler status bisa dilihat semua user
       const status = botScheduler?.isRunning ? '🟢 BERJALAN' : '🔴 BERHENTI';
       const statusData = botScheduler?.getStatus?.() || {};
       
+      let adminInfo = '';
+      if (userId === ADMIN_CHAT_ID) {
+        adminInfo = `\n👑 <b>Anda adalah Admin</b>\n` +
+                   `<b>Command khusus:</b> /report_revenue\n`;
+      }
+      
       await bot.sendMessage(msg.chat.id,
-        `📊 <b>Status Scheduler</b>\n\n` +
+        `📊 <b>Status Scheduler - EatSleepPush GA4 Bot</b>\n\n` +
+        `<b>Halo ${userName}!</b>\n` +
+        `${adminInfo}\n` +
         `<b>Status:</b> ${status}\n` +
-        `<b>Laporan Revenue:</b> 12:00 WIB setiap hari\n` +
         `<b>Task Aktif:</b> ${statusData.activeTaskCount || 0}\n` +
-        `<b>Command Test:</b> /report_revenue\n\n` +
+        `<b>Laporan Revenue:</b> 12:00 WIB setiap hari\n\n` +
+        `<b>Jadwal Berikutnya:</b>\n` +
+        `• Revenue Report: ${statusData.nextRevenueReport?.timeOnly || 'N/A'}\n` +
+        `• Database Backup: ${statusData.nextBackup?.timeOnly || 'N/A'}\n` +
+        `• File Cleanup: ${statusData.nextCleanup?.timeOnly || 'N/A'}\n\n` +
         `<i>System time: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB</i>`,
         { parse_mode: 'HTML' }
       );
+    });
+  }
+  
+  // ============================================
+  // UNKNOWN COMMAND HANDLER
+  // ============================================
+  
+  if (isTelegraf) {
+    // Handler untuk command yang tidak dikenal (Telegraf)
+    bot.on('text', async (ctx) => {
+      const messageText = ctx.message.text;
+      
+      // Cek jika pesan dimulai dengan "/" tapi bukan command yang dikenal
+      if (messageText.startsWith('/') && 
+          !['/start', '/report_revenue', '/scheduler_status'].some(cmd => 
+            messageText.startsWith(cmd))) {
+        
+        await ctx.reply(
+          `❓ Command tidak dikenali: "${messageText}"\n\n` +
+          `📋 *Commands yang tersedia:*\n` +
+          `/start - Tampilkan menu utama\n` +
+          `/scheduler_status - Cek status scheduler\n\n` +
+          `_Gunakan /start untuk melihat semua command._`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+    });
+    
+  } else if (isNodeTelegramBotApi) {
+    // Handler untuk command yang tidak dikenal (node-telegram-bot-api)
+    bot.on('message', async (msg) => {
+      const messageText = msg.text;
+      
+      // Cek jika pesan dimulai dengan "/" tapi bukan command yang dikenal
+      if (messageText && messageText.startsWith('/') && 
+          !['/start', '/report_revenue', '/scheduler_status'].some(cmd => 
+            messageText.startsWith(cmd))) {
+        
+        await bot.sendMessage(msg.chat.id,
+          `❓ Command tidak dikenali: "${messageText}"\n\n` +
+          `📋 *Commands yang tersedia:*\n` +
+          `/start - Tampilkan menu utama\n` +
+          `/scheduler_status - Cek status scheduler\n\n` +
+          `_Gunakan /start untuk melihat semua command._`,
+          { parse_mode: 'Markdown' }
+        );
+      }
     });
   }
   
@@ -248,7 +377,7 @@ setTimeout(async () => {
       `👥 <b>Users:</b> ${Object.keys(userDatabase.users).length}\n` +
       `📊 <b>Revenue Reports:</b> 12:00 WIB daily\n` +
       `⚡ <b>Status:</b> ONLINE\n\n` +
-      `<i>Bot ready to process commands.</i>`;
+      `<i>Bot ready to process commands. Use /start to begin.</i>`;
     
     // Send to admin DENGAN ERROR HANDLING YANG BAIK
     try {
@@ -290,13 +419,15 @@ app.get('/health', (req, res) => {
     features: {
       user_reports: true,
       revenue_reports: true,
-      automatic_scheduling: true
+      automatic_scheduling: true,
+      start_command: true,
+      unknown_command_handler: true
     },
     stats: {
       users: Object.keys(userDb.users || {}).length,
       ga4_configured: !!process.env.GA4_PROPERTY_ID,
       admin_configured: !!process.env.ADMIN_CHAT_ID,
-      scheduler_running: false // Will be true after initialization
+      telegram_connected: true
     }
   });
 });
@@ -372,6 +503,8 @@ app.get('/', (req, res) => {
         .card { background: white; padding: 15px; border-radius: 6px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .menu { display: flex; gap: 10px; margin-top: 20px; }
         .menu a { background: #4f46e5; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px; }
+        .command-list { background: #f8fafc; padding: 15px; border-radius: 6px; margin: 15px 0; }
+        .command { font-family: monospace; background: #e2e8f0; padding: 5px 10px; border-radius: 4px; margin: 5px 0; display: inline-block; }
       </style>
     </head>
     <body>
@@ -383,7 +516,16 @@ app.get('/', (req, res) => {
           <div class="card">
             <p><strong>Status:</strong> 🟢 Online</p>
             <p><strong>Service:</strong> Telegram bot for GA4 analytics</p>
-            <p><strong>Features:</strong> User reports, Revenue reports, Automatic scheduling</p>
+            <p><strong>Version:</strong> 2.0.0 (with Start Command)</p>
+          </div>
+        </div>
+        
+        <div class="status">
+          <h2>Available Commands</h2>
+          <div class="command-list">
+            <div class="command">/start</div> - Show welcome message<br>
+            <div class="command">/scheduler_status</div> - Check scheduler status<br>
+            <div class="command">/report_revenue</div> - Admin only: Generate report<br>
           </div>
         </div>
         
@@ -401,7 +543,7 @@ app.get('/', (req, res) => {
           <div class="card">
             <p><strong>Waktu:</strong> Setiap hari jam 12:00 WIB</p>
             <p><strong>Format:</strong> HTML file dikirim ke Telegram</p>
-            <p><strong>Status:</strong> Aktif setelah bot startup</p>
+            <p><strong>Status:</strong> ✅ Aktif & Terjadwal</p>
           </div>
         </div>
       </div>
