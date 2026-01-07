@@ -1,4 +1,4 @@
-// index.js - FULL VERSION dengan Revenue Reporter & Scheduler (FINAL FIXED)
+// index.js - FULL VERSION dengan Revenue Reporter & Scheduler (FIXED BOT USERNAME)
 const express = require('express');
 
 // Load environment ONCE
@@ -11,10 +11,14 @@ const TELEGRAM_GROUP_CHAT_ID = process.env.TELEGRAM_GROUP_CHAT_ID;
 const GA4_PROPERTY_ID = process.env.GA4_PROPERTY_ID;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '8462501080'; // Default ke ID Anda
 
+// Bot username untuk command matching
+const BOT_USERNAME = process.env.BOT_USERNAME || 'eatsleeppush_bot';
+
 console.log('✅ Environment variables loaded successfully');
 console.log(`   Group Chat ID: ${TELEGRAM_GROUP_CHAT_ID}`);
 console.log(`   GA4 Property ID: ${GA4_PROPERTY_ID}`);
 console.log(`   Admin Chat ID: ${ADMIN_CHAT_ID}`);
+console.log(`   Bot Username: @${BOT_USERNAME}`);
 
 // Initialize Express
 const app = express();
@@ -126,11 +130,11 @@ setTimeout(async () => {
   console.log(`🔧 Bot library detected: ${isTelegraf ? 'Telegraf' : isNodeTelegramBotApi ? 'node-telegram-bot-api' : 'Unknown'}`);
   
   // ============================================
-  // START COMMAND HANDLER (UNTUK SEMUA USER) - FIXED HTML MODE
+  // START COMMAND HANDLER (UNTUK SEMUA USER) - WITH BOT USERNAME SUPPORT
   // ============================================
   
   if (isTelegraf) {
-    // For Telegraf - Handler untuk /start (FIXED HTML MODE)
+    // For Telegraf - Handler untuk /start (WITH BOT USERNAME SUPPORT)
     bot.command('start', async (ctx) => {
       const userId = ctx.from.id.toString();
       const userName = ctx.from.first_name || 'Pengguna';
@@ -151,13 +155,16 @@ setTimeout(async () => {
         `/scheduler_status - Cek status scheduler\n` +
         `/start - Tampilkan pesan ini\n\n` +
         `<i>Admin memiliki akses ke command tambahan.</i>`,
-        { parse_mode: 'HTML' }  // FIXED: Changed from 'Markdown' to 'HTML'
+        { parse_mode: 'HTML' }
       );
     });
     
   } else if (isNodeTelegramBotApi) {
-    // For node-telegram-bot-api - Handler untuk /start (FIXED HTML MODE)
-    bot.onText(/\/start/, async (msg) => {
+    // For node-telegram-bot-api - Handler untuk /start (WITH BOT USERNAME SUPPORT)
+    // Regex yang menerima: /start ATAU /start@eatsleeppush_bot
+    const startRegex = new RegExp(`^/start(@${BOT_USERNAME})?$`, 'i');
+    
+    bot.onText(startRegex, async (msg) => {
       const userId = msg.from.id.toString();
       const userName = msg.from.first_name || 'Pengguna';
       
@@ -177,13 +184,13 @@ setTimeout(async () => {
         `/scheduler_status - Cek status scheduler\n` +
         `/start - Tampilkan pesan ini\n\n` +
         `<i>Admin memiliki akses ke command tambahan.</i>`,
-        { parse_mode: 'HTML' }  // FIXED: Changed from 'Markdown' to 'HTML'
+        { parse_mode: 'HTML' }
       );
     });
   }
   
   // ============================================
-  // MANUAL COMMANDS FOR ADMIN ONLY
+  // MANUAL COMMANDS FOR ADMIN ONLY - WITH BOT USERNAME SUPPORT
   // ============================================
   
   // Add manual commands based on bot library
@@ -240,8 +247,12 @@ setTimeout(async () => {
     });
     
   } else if (isNodeTelegramBotApi) {
-    // For node-telegram-bot-api
-    bot.onText(/\/report_revenue/, async (msg) => {
+    // For node-telegram-bot-api - WITH BOT USERNAME SUPPORT
+    
+    // Handler untuk /report_revenue (menerima dengan/tanpa @username)
+    const reportRevenueRegex = new RegExp(`^/report_revenue(@${BOT_USERNAME})?$`, 'i');
+    
+    bot.onText(reportRevenueRegex, async (msg) => {
       const userId = msg.from.id.toString();
       if (userId !== ADMIN_CHAT_ID) {
         return bot.sendMessage(msg.chat.id, '❌ Hanya admin yang bisa menggunakan command ini.');
@@ -261,7 +272,10 @@ setTimeout(async () => {
       }
     });
     
-    bot.onText(/\/scheduler_status/, async (msg) => {
+    // Handler untuk /scheduler_status (menerima dengan/tanpa @username)
+    const schedulerStatusRegex = new RegExp(`^/scheduler_status(@${BOT_USERNAME})?$`, 'i');
+    
+    bot.onText(schedulerStatusRegex, async (msg) => {
       const userId = msg.from.id.toString();
       const userName = msg.from.first_name || 'Pengguna';
       
@@ -293,48 +307,54 @@ setTimeout(async () => {
   }
   
   // ============================================
-  // UNKNOWN COMMAND HANDLER - FIXED HTML MODE
+  // UNKNOWN COMMAND HANDLER - IMPROVED WITH BOT USERNAME
   // ============================================
   
   if (isTelegraf) {
-    // Handler untuk command yang tidak dikenal (Telegraf) - FIXED
+    // Handler untuk command yang tidak dikenal (Telegraf)
     bot.on('text', async (ctx) => {
       const messageText = ctx.message.text;
       
       // Cek jika pesan dimulai dengan "/" tapi bukan command yang dikenal
-      if (messageText && messageText.startsWith('/') && 
-          !['/start', '/report_revenue', '/scheduler_status'].some(cmd => 
-            messageText.startsWith(cmd))) {
+      if (messageText && messageText.startsWith('/')) {
+        const command = messageText.split(' ')[0].split('@')[0];
         
-        await ctx.reply(
-          `❓ <b>Command tidak dikenali:</b> <code>${messageText}</code>\n\n` +
-          `📋 <b>Commands yang tersedia:</b>\n` +
-          `/start - Tampilkan menu utama\n` +
-          `/scheduler_status - Cek status scheduler\n\n` +
-          `<i>Gunakan /start untuk melihat semua command.</i>`,
-          { parse_mode: 'HTML' }  // FIXED: Changed from 'Markdown' to 'HTML'
-        );
+        if (!['/start', '/report_revenue', '/scheduler_status'].includes(command)) {
+          await ctx.reply(
+            `❓ <b>Command tidak dikenali:</b> <code>${messageText}</code>\n\n` +
+            `📋 <b>Commands yang tersedia:</b>\n` +
+            `/start - Tampilkan menu utama\n` +
+            `/scheduler_status - Cek status scheduler\n\n` +
+            `<i>Gunakan /start untuk melihat semua command.</i>`,
+            { parse_mode: 'HTML' }
+          );
+        }
       }
     });
     
   } else if (isNodeTelegramBotApi) {
-    // Handler untuk command yang tidak dikenal (node-telegram-bot-api) - FIXED
+    // Handler untuk command yang tidak dikenal (node-telegram-bot-api) - IMPROVED
     bot.on('message', async (msg) => {
       const messageText = msg.text;
       
       // Cek jika pesan dimulai dengan "/" tapi bukan command yang dikenal
-      if (messageText && messageText.startsWith('/') && 
-          !['/start', '/report_revenue', '/scheduler_status'].some(cmd => 
-            messageText.startsWith(cmd))) {
+      if (messageText && messageText.startsWith('/')) {
+        // Extract command name (remove @username jika ada)
+        const command = messageText.split(' ')[0].split('@')[0];
         
-        await bot.sendMessage(msg.chat.id,
-          `❓ <b>Command tidak dikenali:</b> <code>${messageText}</code>\n\n` +
-          `📋 <b>Commands yang tersedia:</b>\n` +
-          `/start - Tampilkan menu utama\n` +
-          `/scheduler_status - Cek status scheduler\n\n` +
-          `<i>Gunakan /start untuk melihat semua command.</i>`,
-          { parse_mode: 'HTML' }  // FIXED: Changed from 'Markdown' to 'HTML'
-        );
+        // List commands yang valid (tanpa @username)
+        const validCommands = ['/start', '/report_revenue', '/scheduler_status'];
+        
+        if (!validCommands.includes(command)) {
+          await bot.sendMessage(msg.chat.id,
+            `❓ <b>Command tidak dikenali:</b> <code>${messageText}</code>\n\n` +
+            `📋 <b>Commands yang tersedia:</b>\n` +
+            `/start - Tampilkan menu utama\n` +
+            `/scheduler_status - Cek status scheduler\n\n` +
+            `<i>Gunakan /start untuk melihat semua command.</i>`,
+            { parse_mode: 'HTML' }
+          );
+        }
       }
     });
   }
@@ -415,20 +435,22 @@ app.get('/health', (req, res) => {
     status: 'OK', 
     timestamp: new Date().toISOString(),
     service: 'EatSleepPush GA4 Bot',
-    version: '2.0.1', // Updated version
+    version: '2.1.0', // Updated version with bot username support
     features: {
       user_reports: true,
       revenue_reports: true,
       automatic_scheduling: true,
       start_command: true,
       unknown_command_handler: true,
-      parse_mode: 'HTML' // Fixed parse mode
+      parse_mode: 'HTML',
+      bot_username_support: true
     },
     stats: {
       users: Object.keys(userDb.users || {}).length,
       ga4_configured: !!process.env.GA4_PROPERTY_ID,
       admin_configured: !!process.env.ADMIN_CHAT_ID,
-      telegram_connected: true
+      telegram_connected: true,
+      bot_username: BOT_USERNAME
     }
   });
 });
@@ -506,6 +528,7 @@ app.get('/', (req, res) => {
         .menu a { background: #4f46e5; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px; }
         .command-list { background: #f8fafc; padding: 15px; border-radius: 6px; margin: 15px 0; }
         .command { font-family: monospace; background: #e2e8f0; padding: 5px 10px; border-radius: 4px; margin: 5px 0; display: inline-block; }
+        .feature-badge { background: #10b981; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-left: 5px; }
       </style>
     </head>
     <body>
@@ -517,16 +540,18 @@ app.get('/', (req, res) => {
           <div class="card">
             <p><strong>Status:</strong> 🟢 Online</p>
             <p><strong>Service:</strong> Telegram bot for GA4 analytics</p>
-            <p><strong>Version:</strong> 2.0.1 (HTML Parse Mode Fixed)</p>
+            <p><strong>Version:</strong> 2.1.0 <span class="feature-badge">Bot Username Support</span></p>
+            <p><strong>Bot:</strong> @${BOT_USERNAME}</p>
           </div>
         </div>
         
         <div class="status">
-          <h2>Available Commands</h2>
+          <h2>Available Commands <span class="feature-badge">Clickable</span></h2>
           <div class="command-list">
-            <div class="command">/start</div> - Show welcome message<br>
-            <div class="command">/scheduler_status</div> - Check scheduler status<br>
-            <div class="command">/report_revenue</div> - Admin only: Generate report<br>
+            <p>All commands now work with or without @username:</p>
+            <div class="command">/start</div> or <div class="command">/start@${BOT_USERNAME}</div><br>
+            <div class="command">/scheduler_status</div> or <div class="command">/scheduler_status@${BOT_USERNAME}</div><br>
+            <div class="command">/report_revenue</div> - Admin only<br>
           </div>
         </div>
         
@@ -596,6 +621,7 @@ const server = app.listen(PORT, () => {
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
   console.log(`🔗 Webhook: http://localhost:${PORT}/telegram-webhook`);
   console.log(`🔗 Reports: http://localhost:${PORT}/reports`);
+  console.log(`🤖 Bot Username: @${BOT_USERNAME} (all commands support @username)`);
 });
 
 // Server error handling
