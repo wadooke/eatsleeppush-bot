@@ -9,7 +9,7 @@ console.log('📋 Loading environment configuration...');
 
 const TELEGRAM_GROUP_CHAT_ID = process.env.TELEGRAM_GROUP_CHAT_ID;
 const GA4_PROPERTY_ID = process.env.GA4_PROPERTY_ID;
-const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '8462501080';
+const ADMIN_CHAT_ID = process.env.ADMIN_IDS || '185472876';
 const BOT_USERNAME = process.env.BOT_USERNAME || 'eatsleeppush_bot';
 
 console.log('✅ Environment variables loaded successfully');
