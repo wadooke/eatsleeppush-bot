@@ -1,299 +1,362 @@
-// data/user-database.js - COMPLETE VERSION
+// data/user-database.js - FINAL VERSION dengan Auto-Save & Backup
 const fs = require('fs').promises;
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, 'user-database.json');
-
 class UserDatabase {
   constructor() {
-    this.users = {}; // Format: { "8462501080": { "nama": "Meningan Pemalang", ... } }
+    this.dbPath = path.join(__dirname, 'users.json');
+    this.backupDir = path.join(__dirname, '../backups');
+    this.users = {};
+    this.isLoaded = false;
+    
     console.log('📦 UserDatabase instance created');
-    this.loadUsers();
+    
+    // Auto-save interval (5 minutes)
+    this.autoSaveInterval = 5 * 60 * 1000;
+    this.saveTimer = null;
+    
+    // Load database saat startup
+    this.loadFromFile();
+    
+    // Start auto-save
+    this.startAutoSave();
   }
 
   /**
    * Load users from JSON file
-   * Supports both old format (object) and new format (array)
    */
-  async loadUsers() {
+  async loadFromFile() {
     try {
-      const data = await fs.readFile(DB_PATH, 'utf8');
-      const parsed = JSON.parse(data);
+      console.log(`📂 Loading user database from: ${this.dbPath}`);
       
-      // DETECT FORMAT: array or object
-      if (Array.isArray(parsed)) {
-        // NEW FORMAT: Convert array to object format
-        this.users = {};
-        parsed.forEach(user => {
-          if (user && user.id) {
-            this.users[user.id] = {
-              nama: user.name || user.nama || 'Unknown',
-              shortlink: user.shortlink || '',
-              destinationUrl: user.articleUrl || user.destinationUrl || '',
-              ga4Path: user.ga4Path || this.extractPathFromUrl(user.articleUrl || user.destinationUrl || ''),
-              articleTitle: user.articleTitle || this.extractTitleFromUrl(user.articleUrl || user.destinationUrl || ''),
-              tanggalDaftar: user.registeredAt || user.tanggalDaftar || new Date().toISOString(),
-              didaftarkanOleh: user.didaftarkanOleh || 'admin'
-            };
-          }
-        });
-        console.log(`✅ Converted ${parsed.length} users from array format`);
-      } else {
-        // OLD FORMAT: Already in object format
-        this.users = parsed;
-        console.log(`✅ Loaded ${Object.keys(this.users).length} users from database (object format)`);
-      }
+      const data = await fs.readFile(this.dbPath, 'utf8');
+      this.users = JSON.parse(data);
+      this.isLoaded = true;
       
-      console.log(`   Users loaded: [${Object.keys(this.users).join(', ')}]`);
+      console.log(`✅ Loaded ${Object.keys(this.users).length} registered users from file`);
+      console.log(`   Users: [ ${Object.keys(this.users).join(', ')} ]`);
+      
+      // Create backup of loaded data
+      await this.createBackup();
       
     } catch (error) {
       if (error.code === 'ENOENT') {
         // File doesn't exist, create new
-        console.log('📁 Creating new user database file...');
+        console.log('ℹ️  No user database file found, creating new database');
         this.users = {};
-        await this.saveUsers();
-      } else if (error instanceof SyntaxError) {
-        // Invalid JSON
-        console.error('❌ Invalid JSON in database file:', error.message);
-        console.log('📁 Creating fresh database...');
-        this.users = {};
-        await this.saveUsers();
+        await this.saveToFile(); // Create empty file
       } else {
-        console.error('❌ Error loading user database:', error.message);
+        console.error('❌ Failed to load user database:', error.message);
         this.users = {};
       }
+      this.isLoaded = true;
     }
   }
 
   /**
    * Save users to JSON file
    */
-  async saveUsers() {
+  async saveToFile() {
     try {
-      await fs.writeFile(DB_PATH, JSON.stringify(this.users, null, 2), 'utf8');
+      if (!this.isLoaded) {
+        console.log('⏳ Database not loaded yet, skipping save');
+        return;
+      }
+      
+      // Ensure directory exists
+      const dir = path.dirname(this.dbPath);
+      await fs.mkdir(dir, { recursive: true }).catch(() => {});
+      
+      // Save to file
+      await fs.writeFile(this.dbPath, JSON.stringify(this.users, null, 2), 'utf8');
+      
       console.log(`💾 Saved ${Object.keys(this.users).length} users to database`);
+      
     } catch (error) {
-      console.error('❌ Error saving user database:', error.message);
+      console.error('❌ Failed to save user database:', error.message);
+      
+      // Try to save to backup location
+      await this.emergencySave();
     }
   }
 
   /**
-   * Get user by Telegram ID
-   * @param {string} userId - Telegram user ID
-   * @returns {object|null} User data or null if not found
+   * Emergency save to backup location
    */
-  getUser(userId) {
-    const id = userId.toString();
-    return this.users[id] || null;
+  async emergencySave() {
+    try {
+      const backupPath = path.join(this.backupDir, `users-emergency-${Date.now()}.json`);
+      await fs.mkdir(this.backupDir, { recursive: true });
+      await fs.writeFile(backupPath, JSON.stringify(this.users, null, 2), 'utf8');
+      console.log(`⚠️  Emergency save to: ${backupPath}`);
+    } catch (error) {
+      console.error('❌ Emergency save also failed:', error.message);
+    }
   }
 
   /**
-   * Get all users as array
-   * @returns {array} Array of user objects
+   * Create backup of current database
    */
-  getAllUsers() {
-    return Object.entries(this.users).map(([id, data]) => ({
-      id,
-      nama: data.nama,
-      shortlink: data.shortlink,
-      destinationUrl: data.destinationUrl,
-      ga4Path: data.ga4Path,
-      articleTitle: data.articleTitle,
-      tanggalDaftar: data.tanggalDaftar,
-      didaftarkanOleh: data.didaftarkanOleh
-    }));
+  async createBackup() {
+    try {
+      await fs.mkdir(this.backupDir, { recursive: true });
+      
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupPath = path.join(this.backupDir, `users-backup-${timestamp}.json`);
+      
+      await fs.writeFile(backupPath, JSON.stringify(this.users, null, 2), 'utf8');
+      
+      console.log(`📦 Backup created: ${backupPath}`);
+      
+      // Cleanup old backups (keep last 7 days)
+      await this.cleanupOldBackups();
+      
+    } catch (error) {
+      console.error('❌ Failed to create backup:', error.message);
+    }
   }
 
   /**
-   * Add or update a user
-   * @param {string} userId - Telegram user ID
-   * @param {object} userData - User data
-   * @returns {object} Updated user data
+   * Cleanup old backup files
    */
-  addUser(userId, userData) {
-    const id = userId.toString();
+  async cleanupOldBackups(daysToKeep = 7) {
+    try {
+      const files = await fs.readdir(this.backupDir);
+      const now = Date.now();
+      const msPerDay = 24 * 60 * 60 * 1000;
+      
+      for (const file of files) {
+        if (file.startsWith('users-backup-') && file.endsWith('.json')) {
+          const filePath = path.join(this.backupDir, file);
+          const stats = await fs.stat(filePath);
+          const fileAge = now - stats.mtime.getTime();
+          
+          if (fileAge > daysToKeep * msPerDay) {
+            await fs.unlink(filePath);
+            console.log(`🗑️  Old backup deleted: ${file}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('❌ Failed to cleanup old backups:', error.message);
+    }
+  }
+
+  /**
+   * Start auto-save timer
+   */
+  startAutoSave() {
+    if (this.saveTimer) {
+      clearInterval(this.saveTimer);
+    }
     
-    // Prepare user data with defaults
-    const now = new Date().toISOString();
+    this.saveTimer = setInterval(() => {
+      this.saveToFile().catch(() => {});
+    }, this.autoSaveInterval);
     
-    this.users[id] = {
-      nama: userData.nama || 'Unknown',
-      shortlink: userData.shortlink || '',
-      destinationUrl: userData.destinationUrl || '',
-      ga4Path: userData.ga4Path || this.extractPathFromUrl(userData.destinationUrl || ''),
-      articleTitle: userData.articleTitle || this.extractTitleFromUrl(userData.destinationUrl || ''),
-      tanggalDaftar: userData.tanggalDaftar || now,
-      didaftarkanOleh: userData.didaftarkanOleh || 'admin'
+    console.log(`⏰ Auto-save enabled (every ${this.autoSaveInterval / 60000} minutes)`);
+  }
+
+  /**
+   * Stop auto-save timer
+   */
+  stopAutoSave() {
+    if (this.saveTimer) {
+      clearInterval(this.saveTimer);
+      this.saveTimer = null;
+      console.log('⏰ Auto-save disabled');
+    }
+  }
+
+  /**
+   * Register a new user
+   */
+  registerUser(userId, userData) {
+    if (!userId || !userData) {
+      throw new Error('Invalid user data');
+    }
+    
+    // Check if user already exists
+    if (this.users[userId]) {
+      console.log(`ℹ️  User ${userId} already exists, updating...`);
+    }
+    
+    this.users[userId] = {
+      ...userData,
+      lastUpdated: new Date().toISOString()
     };
     
-    // Auto-extract if missing
-    if (!this.users[id].ga4Path && this.users[id].destinationUrl) {
-      this.users[id].ga4Path = this.extractPathFromUrl(this.users[id].destinationUrl);
-    }
+    console.log(`✅ User ${userId} registered/updated in database`);
     
-    if (!this.users[id].articleTitle && this.users[id].destinationUrl) {
-      this.users[id].articleTitle = this.extractTitleFromUrl(this.users[id].destinationUrl);
-    }
+    // Auto-save immediately
+    this.saveToFile().catch(() => {});
     
-    this.saveUsers();
-    console.log(`📝 User ${id} (${this.users[id].nama}) added/updated`);
-    return this.users[id];
+    return this.users[userId];
   }
 
   /**
-   * Delete a user
-   * @param {string} userId - Telegram user ID to delete
-   * @returns {object|null} Deleted user data or null if not found
+   * Remove a user
    */
-  deleteUser(userId) {
-    const id = userId.toString();
-    const user = this.users[id];
-    
-    if (user) {
-      delete this.users[id];
-      this.saveUsers();
-      console.log(`🗑️ User ${id} (${user.nama}) deleted`);
-      return user;
+  removeUser(userId) {
+    if (!this.users[userId]) {
+      console.log(`ℹ️  User ${userId} not found in database`);
+      return false;
     }
     
-    console.log(`⚠️ User ${id} not found for deletion`);
-    return null;
+    const username = this.users[userId].username;
+    delete this.users[userId];
+    
+    console.log(`🗑️  User ${userId} (${username}) removed from database`);
+    
+    // Auto-save immediately
+    this.saveToFile().catch(() => {});
+    
+    return true;
   }
 
   /**
-   * Update user data
-   * @param {string} userId - Telegram user ID
-   * @param {object} updates - Fields to update
-   * @returns {object|null} Updated user or null if not found
+   * Get user by ID
    */
-  updateUser(userId, updates) {
-    const id = userId.toString();
-    
-    if (!this.users[id]) {
-      console.log(`⚠️ User ${id} not found for update`);
-      return null;
-    }
-    
-    // Merge updates
-    this.users[id] = { ...this.users[id], ...updates };
-    
-    // Re-extract paths if URL changed
-    if (updates.destinationUrl) {
-      this.users[id].ga4Path = this.extractPathFromUrl(updates.destinationUrl);
-      this.users[id].articleTitle = this.extractTitleFromUrl(updates.destinationUrl);
-    }
-    
-    this.saveUsers();
-    console.log(`✏️ User ${id} (${this.users[id].nama}) updated`);
-    return this.users[id];
+  getUser(userId) {
+    return this.users[userId] || null;
+  }
+
+  /**
+   * Get all users
+   */
+  getAllUsers() {
+    return { ...this.users };
   }
 
   /**
    * Get user count
-   * @returns {number} Number of users
    */
   getUserCount() {
     return Object.keys(this.users).length;
   }
 
   /**
-   * Search users by name
-   * @param {string} searchTerm - Name to search for
-   * @returns {array} Matching users
+   * Check if user exists
+   */
+  userExists(userId) {
+    return !!this.users[userId];
+  }
+
+  /**
+   * Update user data
+   */
+  updateUser(userId, updates) {
+    if (!this.users[userId]) {
+      throw new Error(`User ${userId} not found`);
+    }
+    
+    this.users[userId] = {
+      ...this.users[userId],
+      ...updates,
+      lastUpdated: new Date().toISOString()
+    };
+    
+    console.log(`✏️  User ${userId} updated in database`);
+    
+    // Auto-save immediately
+    this.saveToFile().catch(() => {});
+    
+    return this.users[userId];
+  }
+
+  /**
+   * Search users by username
    */
   searchUsers(searchTerm) {
+    const results = [];
     const term = searchTerm.toLowerCase();
-    return this.getAllUsers().filter(user => 
-      user.nama.toLowerCase().includes(term) || 
-      user.id.includes(term)
-    );
-  }
-
-  /**
-   * Export database to array format
-   * @returns {array} Users in array format
-   */
-  exportToArray() {
-    return this.getAllUsers();
-  }
-
-  /**
-   * Backup database to separate file
-   */
-  async backup() {
-    try {
-      const backupPath = path.join(__dirname, `user-database-backup-${Date.now()}.json`);
-      await fs.writeFile(backupPath, JSON.stringify(this.users, null, 2), 'utf8');
-      console.log(`💾 Backup created: ${backupPath}`);
-    } catch (error) {
-      console.error('❌ Error creating backup:', error.message);
+    
+    for (const [userId, userData] of Object.entries(this.users)) {
+      if (
+        userId.includes(term) ||
+        (userData.username && userData.username.toLowerCase().includes(term))
+      ) {
+        results.push({ userId, ...userData });
+      }
     }
+    
+    return results;
   }
 
   /**
-   * Extract path from URL for GA4 filtering
-   * @param {string} url - Full URL
-   * @returns {string} Path part
+   * Get database statistics
    */
-  extractPathFromUrl(url) {
-    try {
-      if (!url || !url.startsWith('http')) return '/';
-      const urlObj = new URL(url);
-      return urlObj.pathname || '/';
-    } catch (error) {
-      console.error('❌ Error extracting path from URL:', url, error.message);
-      return '/';
-    }
+  getStats() {
+    const users = Object.values(this.users);
+    
+    return {
+      totalUsers: users.length,
+      recentlyRegistered: users.filter(u => {
+        const regDate = new Date(u.registeredAt || u.lastUpdated);
+        const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        return regDate > weekAgo;
+      }).length,
+      byAdmin: users.reduce((acc, user) => {
+        const adminId = user.registeredBy;
+        acc[adminId] = (acc[adminId] || 0) + 1;
+        return acc;
+      }, {})
+    };
   }
 
   /**
-   * Extract article title from URL
-   * @param {string} url - Full URL
-   * @returns {string} Article title
+   * Export database to readable format
    */
-  extractTitleFromUrl(url) {
-    try {
-      if (!url || !url.startsWith('http')) return 'unknown-article';
-      const urlObj = new URL(url);
-      const pathParts = urlObj.pathname.split('/').filter(p => p);
-      const lastPart = pathParts[pathParts.length - 1] || 'unknown-article';
+  exportToCSV() {
+    let csv = 'User ID,Username,Registered At,Registered By,Last Updated\n';
+    
+    for (const [userId, userData] of Object.entries(this.users)) {
+      const row = [
+        userId,
+        userData.username || '',
+        userData.registeredAt || '',
+        userData.registeredBy || '',
+        userData.lastUpdated || ''
+      ].map(field => `"${field}"`).join(',');
       
-      // Convert kebab-case to readable title
-      return lastPart
-        .replace(/-/g, ' ')
-        .replace(/\b\w/g, char => char.toUpperCase());
-    } catch (error) {
-      console.error('❌ Error extracting title from URL:', url, error.message);
-      return 'unknown-article';
+      csv += row + '\n';
     }
+    
+    return csv;
+  }
+
+  /**
+   * Graceful shutdown
+   */
+  async shutdown() {
+    console.log('🛑 Shutting down UserDatabase...');
+    
+    // Stop auto-save
+    this.stopAutoSave();
+    
+    // Final save
+    await this.saveToFile();
+    
+    // Create final backup
+    await this.createBackup();
+    
+    console.log('✅ UserDatabase shutdown complete');
   }
 }
 
 // Create singleton instance
-const userDatabaseInstance = new UserDatabase();
+const userDatabase = new UserDatabase();
 
-// Export functions for modules that expect them
-module.exports = {
-  // Main instance
-  getInstance: () => userDatabaseInstance,
-  
-  // Core functions (used by admin-commands.js and user-commands.js)
-  getUser: (userId) => userDatabaseInstance.getUser(userId),
-  getAllUsers: () => userDatabaseInstance.getAllUsers(),
-  addUser: (userId, userData) => userDatabaseInstance.addUser(userId, userData),
-  deleteUser: (userId) => userDatabaseInstance.deleteUser(userId),
-  updateUser: (userId, updates) => userDatabaseInstance.updateUser(userId, updates),
-  
-  // Additional functions
-  getUserCount: () => userDatabaseInstance.getUserCount(),
-  searchUsers: (term) => userDatabaseInstance.searchUsers(term),
-  exportToArray: () => userDatabaseInstance.exportToArray(),
-  backup: () => userDatabaseInstance.backup(),
-  
-  // For backward compatibility and direct access
-  users: userDatabaseInstance.users,
-  
-  // Helper functions (if needed elsewhere)
-  extractPathFromUrl: (url) => userDatabaseInstance.extractPathFromUrl(url),
-  extractTitleFromUrl: (url) => userDatabaseInstance.extractTitleFromUrl(url)
-};
+// Handle process termination
+process.on('SIGINT', async () => {
+  await userDatabase.shutdown();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  await userDatabase.shutdown();
+  process.exit(0);
+});
+
+// Export the instance
+module.exports = userDatabase;
