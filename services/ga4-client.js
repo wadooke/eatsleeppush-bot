@@ -1,4 +1,4 @@
-// services/ga4-client.js - Google Analytics 4 client (VERSI DIPERBAIKI)
+// services/ga4-client.js - Google Analytics 4 client (FINAL VERSION)
 const { BetaAnalyticsDataClient } = require('@google-analytics/data');
 const { GoogleAuth } = require('google-auth-library');
 
@@ -29,21 +29,11 @@ function initializeGA4Client() {
         console.error('   ❌ Failed to parse GOOGLE_APPLICATION_CREDENTIALS:', parseError.message);
       }
     }
-    // PRIORITAS 3: Coba baca dari file (development)
+    // PRIORITAS 3: Error jika tidak ada kredensial
     else {
-      console.log('   ⚠️  No GA4 credentials found in environment variables');
-      console.log('   ℹ️  Trying to read from file (development mode only)...');
-      try {
-        const fs = require('fs').promises;
-        const path = require('path');
-        const credPath = path.join(__dirname, '../credentials.json');
-        const credContent = await fs.readFile(credPath, 'utf8');
-        credentials = JSON.parse(credContent);
-        console.log(`   ✅ Credentials loaded from file: ${credPath}`);
-      } catch (fileError) {
-        console.error('   ❌ Failed to load credentials from file:', fileError.message);
-        return null;
-      }
+      console.error('❌ No Google credentials found in environment variables.');
+      console.error('   Please set GOOGLE_APPLICATION_CREDENTIALS_JSON in Railway Variables.');
+      return null;
     }
     
     // Validasi credentials
@@ -69,8 +59,6 @@ function initializeGA4Client() {
     // Initialize Analytics Client
     const analyticsDataClient = new BetaAnalyticsDataClient({ auth });
     
-    // Test the connection (async tetapi dipanggil synchronous - perlu diperbaiki)
-    // Kita akan test di index.js nanti
     console.log('✅ GA4 Client object created successfully');
     return analyticsDataClient;
     
