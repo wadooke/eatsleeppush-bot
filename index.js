@@ -1,4 +1,4 @@
-// index.js - FINAL COMPLETE VERSION dengan Strict Access Control
+// index.js - FINAL VERSION dengan Strict Access Control System
 const express = require('express');
 
 // Load environment ONCE
@@ -24,7 +24,7 @@ app.use(express.json());
 
 // Initialize database FIRST
 console.log('💾 Initializing user database...');
-const userDatabase = require('./data/user-database'); // Load database
+const userDatabase = require('./data/user-database');
 
 // Tunggu database selesai load
 setTimeout(async () => {
@@ -63,36 +63,19 @@ setTimeout(async () => {
     console.log('   Bot will continue but revenue reports may fail.');
   }
   
-  // Initialize Telegram Bot
-  console.log('🤖 Initializing Telegram Bot...');
-  const { initializeTelegramBot } = require('./services/telegram-bot');
-  const bot = initializeTelegramBot(analyticsDataClient);
-  
-  if (!bot) {
-    console.error('❌ Telegram Bot initialization failed!');
-    return;
-  }
-  
-  console.log('✅ Telegram Bot initialized');
-
   // ============================================
-  // NEW: INITIALIZE STRICT ACCESS CONTROL BOT HANDLER
+  // NEW TELEGRAM BOT HANDLER WITH STRICT ACCESS CONTROL
   // ============================================
   console.log('🤖 Initializing Telegram Bot with Access Control...');
-
+  
   try {
-    // Initialize the new Telegram Bot Handler with strict access control
-    const TelegramBotHandler = require('./services/telegram-bot');
+    // TelegramBotHandler akan auto-initialize dan handle semua commands
+    require('./services/telegram-bot');
     console.log('✅ Telegram Bot Handler initialized');
-  
-    // HENTIKAN/COMMENT KODE HANDLER LAMA di bawah ini
-    // karena TelegramBotHandler baru akan menangani semua commands
-    console.log('⚠️  Legacy command handlers will be overridden by strict access control system');
-  
+    
   } catch (error) {
     console.error('❌ Failed to initialize Telegram Bot Handler:', error.message);
-    console.error('   Error details:', error);
-    console.log('⚠️  Bot will use legacy handlers (strict access control may not work)');
+    console.log('⚠️  Bot may not respond to commands');
   }
   
   // ============================================
@@ -106,7 +89,7 @@ setTimeout(async () => {
   try {
     // 1. Initialize Revenue Reporter
     const RevenueReporter = require('./services/revenue-reporter');
-    revenueReporter = new RevenueReporter(analyticsDataClient, bot);
+    revenueReporter = new RevenueReporter(analyticsDataClient, null); // Bot dihandle oleh telegram-bot.js
     console.log('   ✅ Revenue Reporter initialized');
     
     // 2. Initialize Scheduler
@@ -137,208 +120,17 @@ setTimeout(async () => {
   }
   
   // ============================================
-  // DETERMINE BOT LIBRARY TYPE
+  // WEBHOOK ENDPOINT (untuk production)
   // ============================================
   
-  // Determine bot library type
-  const isTelegraf = typeof bot.command === 'function';
-  const isNodeTelegramBotApi = typeof bot.on === 'function' && typeof bot.sendMessage === 'function';
-  
-  console.log(`🔧 Bot library detected: ${isTelegraf ? 'Telegraf' : isNodeTelegramBotApi ? 'node-telegram-bot-api' : 'Unknown'}`);
-  
-  // ============================================
-  // START COMMAND HANDLER (HANYA untuk command index.js)
-  // ============================================
-  
-  if (isTelegraf) {
-    // For Telegraf - Handler untuk /start (ONLY for index.js commands)
-    bot.command('start', async (ctx) => {
-      const userId = ctx.from.id.toString();
-      const userName = ctx.from.first_name || 'Pengguna';
-      
-      console.log(`🤝 User ${userName} (${userId}) accessed /start command`);
-      
-      await ctx.reply(
-        `Halo ${userName}! 👋\n\n` +
-        `Selamat datang di <b>EatSleepPush GA4 Bot</b>.\n\n` +
-        `🤖 <b>Bot ini dapat:</b>\n` +
-        `• Mengirim laporan analytics harian\n` +
-        `• Menampilkan statistik GA4\n` +
-        `• User management & reporting\n\n` +
-        `🛠 <b>Status Sistem:</b>\n` +
-        `• GA4: ✅ Terhubung\n` +
-        `• Scheduler: ✅ Aktif\n` +
-        `• Laporan: 12:00 WIB setiap hari\n\n` +
-        `📋 <b>Commands untuk Semua User:</b>\n` +
-        `/start - Tampilkan pesan ini\n` +
-        `/scheduler_status - Cek status scheduler\n\n` +
-        `👑 <b>Commands Admin Only:</b>\n` +
-        `/report_revenue - Generate laporan revenue\n\n` +
-        `🔒 <b>ATURAN AKSES KETAT:</b>\n` +
-        `• User tidak terdaftar: ❌ Tidak bisa apa-apa\n` +
-        `• User terdaftar: ✅ /cekvar, /userid (hanya Thread 1)\n` +
-        `• Admin: ✅ Semua command (Thread 1,7,5)\n\n` +
-        `<i>Gunakan /bantuan untuk panduan lengkap.</i>`,
-        { parse_mode: 'HTML' }
-      );
-    });
-    
-  } else if (isNodeTelegramBotApi) {
-    // For node-telegram-bot-api - Handler untuk /start dan /scheduler_status
-    // HANYA handle command yang spesifik untuk index.js
-    
-    // Regex untuk command dengan @username support
-    const startRegex = new RegExp(`^/start(@${BOT_USERNAME})?$`, 'i');
-    const schedulerRegex = new RegExp(`^/scheduler_status(@${BOT_USERNAME})?$`, 'i');
-    const reportRevenueRegex = new RegExp(`^/report_revenue(@${BOT_USERNAME})?$`, 'i');
-    
-    // Handler untuk /start
-    bot.onText(startRegex, async (msg) => {
-      const userId = msg.from.id.toString();
-      const userName = msg.from.first_name || 'Pengguna';
-      
-      console.log(`🤝 User ${userName} (${userId}) accessed /start command`);
-      
-      await bot.sendMessage(msg.chat.id,
-        `Halo ${userName}! 👋\n\n` +
-        `Selamat datang di <b>EatSleepPush GA4 Bot</b>.\n\n` +
-        `🤖 <b>Bot ini dapat:</b>\n` +
-        `• Mengirim laporan analytics harian\n` +
-        `• Menampilkan statistik GA4\n` +
-        `• User management & reporting\n\n` +
-        `🛠 <b>Status Sistem:</b>\n` +
-        `• GA4: ✅ Terhubung\n` +
-        `• Scheduler: ✅ Aktif\n` +
-        `• Laporan: 12:00 WIB setiap hari\n\n` +
-        `📋 <b>Commands untuk Semua User:</b>\n` +
-        `/start - Tampilkan pesan ini\n` +
-        `/scheduler_status - Cek status scheduler\n\n` +
-        `👑 <b>Commands Admin Only:</b>\n` +
-        `/report_revenue - Generate laporan revenue\n\n` +
-        `🔒 <b>ATURAN AKSES KETAT:</b>\n` +
-        `• User tidak terdaftar: ❌ Tidak bisa apa-apa\n` +
-        `• User terdaftar: ✅ /cekvar, /userid (hanya Thread 1)\n` +
-        `• Admin: ✅ Semua command (Thread 1,7,5)\n\n` +
-        `<i>Gunakan /bantuan untuk panduan lengkap.</i>`,
-        { parse_mode: 'HTML' }
-      );
-    });
-    
-    // Handler untuk /scheduler_status
-    bot.onText(schedulerRegex, async (msg) => {
-      const userId = msg.from.id.toString();
-      const userName = msg.from.first_name || 'Pengguna';
-      const threadId = msg.message_thread_id || 0;
-      
-      console.log(`📊 User ${userName} (${userId}) accessed /scheduler_status in thread ${threadId}`);
-      
-      const status = botScheduler?.isRunning ? '🟢 BERJALAN' : '🔴 BERHENTI';
-      const statusData = botScheduler?.getStatus?.() || {};
-      
-      let adminInfo = '';
-      if (userId === ADMIN_CHAT_ID) {
-        adminInfo = `\n👑 <b>Anda adalah Admin</b>\n` +
-                   `<b>Command khusus:</b> /report_revenue\n`;
-      }
-      
-      await bot.sendMessage(msg.chat.id,
-        `📊 <b>Status Scheduler - EatSleepPush GA4 Bot</b>\n\n` +
-        `<b>Halo ${userName}!</b>\n` +
-        `${adminInfo}\n` +
-        `<b>Status:</b> ${status}\n` +
-        `<b>Task Aktif:</b> ${statusData.activeTaskCount || 0}\n` +
-        `<b>Laporan Revenue:</b> 12:00 WIB setiap hari\n\n` +
-        `<b>Jadwal Berikutnya:</b>\n` +
-        `• Revenue Report: ${statusData.nextRevenueReport?.timeOnly || 'N/A'}\n` +
-        `• Database Backup: ${statusData.nextBackup?.timeOnly || 'N/A'}\n` +
-        `• File Cleanup: ${statusData.nextCleanup?.timeOnly || 'N/A'}\n\n` +
-        `<i>System time: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB</i>`,
-        { 
-          parse_mode: 'HTML',
-          ...(threadId && { message_thread_id: threadId })
-        }
-      );
-    });
-    
-    // Handler untuk /report_revenue (admin only)
-    bot.onText(reportRevenueRegex, async (msg) => {
-      const userId = msg.from.id.toString();
-      const threadId = msg.message_thread_id || 0;
-      
-      if (userId !== ADMIN_CHAT_ID) {
-        await bot.sendMessage(msg.chat.id, 
-          '❌ Hanya admin yang bisa menggunakan command ini.',
-          { ...(threadId && { message_thread_id: threadId }) }
-        );
-        return;
-      }
-      
-      await bot.sendMessage(msg.chat.id, 
-        '🔄 Memproses laporan revenue harian...',
-        { ...(threadId && { message_thread_id: threadId }) }
-      );
-      
-      try {
-        if (revenueReporter) {
-          await revenueReporter.sendDailyReport();
-          await bot.sendMessage(msg.chat.id, 
-            '✅ Laporan revenue harian berhasil diproses!',
-            { ...(threadId && { message_thread_id: threadId }) }
-          );
-        } else {
-          await bot.sendMessage(msg.chat.id, 
-            '❌ Revenue reporter tidak tersedia. Cek log server.',
-            { ...(threadId && { message_thread_id: threadId }) }
-          );
-        }
-      } catch (error) {
-        await bot.sendMessage(msg.chat.id, 
-          `❌ Gagal: ${error.message}`,
-          { ...(threadId && { message_thread_id: threadId }) }
-        );
-      }
-    });
-  }
-  
-  // ============================================
-  // SIMPLE MESSAGE HANDLER (Forward ke telegram-bot.js)
-  // ============================================
-  
-  // Handler sederhana untuk forward semua ke telegram-bot.js
-  // Telegram-bot.js akan handle strict access control
-  bot.on('message', async (msg) => {
-    // Biarkan telegram-bot.js handle semua dengan strict access control
-    // Tidak perlu unknown handler karena unregistered users akan diblok
-    const messageText = msg.text || '';
-    
-    if (messageText && messageText.startsWith('/')) {
-      const command = messageText.split(' ')[0].split('@')[0];
-      
-      // Command yang sudah dihandle di index.js
-      const indexJsCommands = ['/start', '/report_revenue', '/scheduler_status'];
-      
-      // Jika bukan command index.js, biarkan telegram-bot.js handle
-      if (!indexJsCommands.includes(command)) {
-        console.log(`   ⏩ Command ${command} forwarded to telegram-bot.js strict access control`);
-      }
-    }
-  });
-  
-  // ============================================
-  // WEBHOOK ENDPOINT
-  // ============================================
-  
+  // Webhook endpoint - Telegram bot akan handle sendiri melalui services/telegram-bot.js
   app.post('/telegram-webhook', (req, res) => {
     try {
-      // Handle based on bot library
-      if (isTelegraf) {
-        bot.handleUpdate(req.body);
-      } else if (isNodeTelegramBotApi) {
-        bot.processUpdate(req.body);
-      }
+      // Bot di-handle oleh TelegramBotHandler di services/telegram-bot.js
+      // Tidak perlu process di sini
       res.sendStatus(200);
     } catch (error) {
-      console.error('❌ Error processing webhook:', error.message);
+      console.error('❌ Error in webhook endpoint:', error.message);
       res.sendStatus(200); // Always return 200 to Telegram
     }
   });
@@ -346,7 +138,7 @@ setTimeout(async () => {
   console.log('✅ Webhook endpoint configured: /telegram-webhook');
   
   // ============================================
-  // STARTUP MESSAGE
+  // STARTUP MESSAGE (via HTTP request ke bot sendiri)
   // ============================================
   
   // Send startup message after everything is ready
@@ -363,27 +155,35 @@ setTimeout(async () => {
       `📊 <b>Revenue Reports:</b> 12:00 WIB daily\n` +
       `🔒 <b>Access Control:</b> STRICT ENABLED\n` +
       `⚡ <b>Status:</b> ONLINE\n\n` +
-      `<i>Bot ready with strict access control. Unregistered users auto-kick in 30 minutes.</i>`;
+      `<b>Access Rules:</b>\n` +
+      `👑 <b>Admin</b>: Full access all threads\n` +
+      `👤 <b>Registered Users</b>: Chat in thread 0,7,5 | Auto-remove in thread 3,9\n` +
+      `🚫 <b>Unregistered</b>: Auto-kick 30 minutes\n\n` +
+      `<i>System ready with strict access control.</i>`;
     
-    // Send to admin
+    // Try to send startup message via HTTP request (since we don't have bot instance here)
     try {
-      if (isTelegraf) {
-        await bot.telegram.sendMessage(ADMIN_CHAT_ID, startupMessage, {
-          parse_mode: 'HTML'
+      // Menggunakan Telegram Bot API langsung
+      const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+      if (TELEGRAM_BOT_TOKEN && ADMIN_CHAT_ID) {
+        const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: ADMIN_CHAT_ID,
+            text: startupMessage,
+            parse_mode: 'HTML'
+          })
         });
-      } else if (isNodeTelegramBotApi) {
-        await bot.sendMessage(ADMIN_CHAT_ID, startupMessage, {
-          parse_mode: 'HTML'
-        });
+        
+        if (response.ok) {
+          console.log('📨 Startup message sent to admin');
+        } else {
+          console.warn('⚠️  Failed to send startup message to admin');
+        }
       }
-      console.log('📨 Startup message sent to admin');
     } catch (error) {
-      if (error.code === 403 || error.message.includes('Forbidden') || error.message.includes('bot can\'t initiate conversation')) {
-        console.warn('⚠️  Admin belum memulai bot. Pesan startup tidak dikirim.');
-        console.warn('   Silakan kirim /start ke bot dari akun admin terlebih dahulu.');
-      } else {
-        console.error('❌ Failed to send startup message:', error.message);
-      }
+      console.warn('⚠️  Could not send startup message:', error.message);
     }
   }, 15000);
   
@@ -417,32 +217,6 @@ app.get('/health', (req, res) => {
       scheduler_running: false
     }
   });
-});
-
-// Manual report trigger endpoint (untuk testing)
-app.get('/trigger-report', async (req, res) => {
-  const apiKey = req.query.api_key;
-  const validApiKey = process.env.ADMIN_API_KEY || 'test123';
-  
-  if (apiKey !== validApiKey) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  
-  try {
-    // Coba jalankan report manual
-    const revenueReporter = require('./services/revenue-reporter');
-    const { initializeGA4Client } = require('./services/ga4-client');
-    
-    const analyticsDataClient = initializeGA4Client();
-    const bot = require('./services/telegram-bot').initializeTelegramBot(analyticsDataClient);
-    
-    const reporter = new revenueReporter(analyticsDataClient, bot);
-    await reporter.sendDailyReport();
-    
-    res.json({ success: true, message: 'Report triggered successfully' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 });
 
 // User statistics endpoint
@@ -518,7 +292,7 @@ app.get('/', (req, res) => {
         <h1>🤖 EatSleepPush GA4 Bot v3.0</h1>
         
         <div class="status">
-          <h2>System Status</h2>
+          <h2>System Status <span class="warning-badge">STRICT ACCESS CONTROL</span></h2>
           <div class="stats-grid">
             <div class="stat-card">
               <h3>👥 Registered Users</h3>
@@ -528,6 +302,7 @@ app.get('/', (req, res) => {
               <h3>🔒 Access Control</h3>
               <p><span class="warning-badge">STRICT</span></p>
               <p>Auto-kick: 30 min</p>
+              <p>Auto-remove: Thread 3,9</p>
             </div>
             <div class="stat-card">
               <h3>📊 GA4 Status</h3>
@@ -544,18 +319,19 @@ app.get('/', (req, res) => {
         <div class="status">
           <h2>Access Rules <span class="warning-badge">STRICT</span></h2>
           <div class="card">
-            <h4>🔴 Unregistered Users:</h4>
+            <h4>👑 ADMIN:</h4>
+            <p>• ✅ Full access ALL threads</p>
+            <p>• ✅ All commands</p>
+            
+            <h4>👤 REGISTERED USER:</h4>
+            <p>• ✅ Chat in thread: 0, 7, 5</p>
+            <p>• ❌ Auto-remove SILENT in thread: 3, 9 (bot-only)</p>
+            <p>• ✅ Commands: /cekvar, /userid, /start, /scheduler_status</p>
+            
+            <h4>🚫 UNREGISTERED:</h4>
             <p>• ❌ Cannot send messages</p>
             <p>• ❌ Cannot use commands</p>
             <p>• ⏰ Auto-kick after 30 minutes</p>
-            
-            <h4>🟡 Registered Users:</h4>
-            <p>• ✅ /cekvar, /userid (Thread 1 only)</p>
-            <p>• ✅ Send messages (Thread 1,7,5)</p>
-            
-            <h4>🟢 Admin:</h4>
-            <p>• ✅ All commands (Thread 1,7,5)</p>
-            <p>• ✅ Register users with /daftar</p>
           </div>
         </div>
         
@@ -565,7 +341,6 @@ app.get('/', (req, res) => {
             <a href="/health">Health Check</a>
             <a href="/users">View Users</a>
             <a href="/reports">View Reports</a>
-            <a href="/trigger-report?api_key=test123">Test Report</a>
           </div>
         </div>
       </div>
@@ -591,17 +366,11 @@ process.on('unhandledRejection', (reason, promise) => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n🛑 Received SIGINT. Shutting down gracefully...');
-  if (typeof botScheduler?.stopAllSchedulers === 'function') {
-    botScheduler.stopAllSchedulers();
-  }
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('\n🛑 Received SIGTERM. Shutting down gracefully...');
-  if (typeof botScheduler?.stopAllSchedulers === 'function') {
-    botScheduler.stopAllSchedulers();
-  }
   process.exit(0);
 });
 
