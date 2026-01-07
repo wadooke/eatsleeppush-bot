@@ -4,14 +4,14 @@ const userDatabase = require('../data/user-database');
 class StrictAccessControl {
   constructor() {
     // Thread IDs dari environment
-    this.DISKUSI_UMUM_THREAD_ID = parseInt(process.env.DISKUSI_UMUM_THREAD_ID) || 1;
+    this.DISKUSI_UMUM_THREAD_ID = parseInt(process.env.DISKUSI_UMUM_THREAD_ID) || 0;
     this.APLIKASI_THREAD_ID = parseInt(process.env.APLIKASI_THREAD_ID) || 7;
     this.TUTORIAL_THREAD_ID = parseInt(process.env.TUTORIAL_THREAD_ID) || 5;
     this.LAPORAN_THREAD_ID = parseInt(process.env.LAPORAN_THREAD_ID) || 3;
     this.PENGUMUMAN_THREAD_ID = parseInt(process.env.PENGUMUMAN_THREAD_ID) || 9;
     
     // Admin ID
-    this.ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '8462501080';
+    this.ADMIN_CHAT_ID = process.env.ADMIN_IDS || '185472876';
     this.TELEGRAM_GROUP_CHAT_ID = process.env.TELEGRAM_GROUP_CHAT_ID;
     
     // Auto-kick configuration - DIPERPANJANG MENJADI 30 MENIT
