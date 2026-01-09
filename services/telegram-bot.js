@@ -707,7 +707,7 @@ class TelegramBotHandler {
       let laporan = `📈 <b>LAPORAN ${timeString}</b>\n\n`;
       laporan += `👤 Nama: "${fullName}"\n`;
       laporan += `👤 ID: ${userId}\n`;
-      laporan += `🔗 Link: ${customLink}\n`;
+      laporan += `🔗 Link: <code>${customLink}</code>\n`;
       laporan += `📄 Artikel: ${customArticle}\n\n`;
       laporan += `<b>📊 PERFORMANCE HARI INI</b>\n`;
       laporan += `👥 Active User: ${stats.activeUsers}\n`;
@@ -743,7 +743,7 @@ class TelegramBotHandler {
         message: `📈 <b>LAPORAN ${timeString}</b>\n\n` +
                 `👤 Nama: "${userName}"\n` +
                 `👤 ID: ${userId}\n` +
-                `🔗 Link: ${userData?.waLink || 'https://wa-me.cloud/bin001'}\n` +
+                `🔗 Link: <code>${userData?.waLink || 'https://wa-me.cloud/bin001'}</code>\n` +
                 `📄 Artikel: ${userData?.article || 'west-african-flavors-jollof-egus...'}\n\n` +
                 `<b>📊 PERFORMANCE HARI INI</b>\n` +
                 `👥 Active User: 0\n` +
