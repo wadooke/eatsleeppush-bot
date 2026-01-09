@@ -29,7 +29,7 @@ let botInstanceRunning = false;
 
 // Initialize database FIRST
 console.log('💾 Initializing user database...');
-const userDatabase = require('./data/user-database');
+const userDatabase = {}; // Placeholder agar bot tetap jalan
 
 // Tunggu database selesai load
 setTimeout(async () => {
