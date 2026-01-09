@@ -147,6 +147,19 @@ function saveUserDatabase(users) {
 class TelegramBotHandler {
   constructor() {
     console.log('\n🤖 ===== TELEGRAM BOT HANDLER INITIALIZATION =====');
+    
+    // 🚨 ANTI-409 CONFLICT: Cek apakah sudah ada instance yang jalan
+    if (global._telegramBotInstanceRunning) {
+      console.log('⚠️  ANTI-409: Another bot instance detected, skipping initialization');
+      console.log('   ⚠️  Only one bot instance can run at a time');
+      this.bot = null;
+      this.isInitialized = false;
+      return;
+    }
+    
+    // Tandai bahwa instance ini sedang berjalan
+    global._telegramBotInstanceRunning = true;
+    
     this.bot = null;
     this.isInitialized = false;
     
@@ -178,6 +191,7 @@ class TelegramBotHandler {
     if (!process.env.TELEGRAM_BOT_TOKEN) {
       console.error('❌ CRITICAL: TELEGRAM_BOT_TOKEN is EMPTY or UNDEFINED!');
       console.error('   Cannot initialize bot without token.');
+      global._telegramBotInstanceRunning = false; // Reset flag
       return;
     }
     
@@ -195,9 +209,11 @@ class TelegramBotHandler {
       this.setupHandlers();
     } else {
       console.error('❌ Bot instance FAILED to create!');
+      global._telegramBotInstanceRunning = false; // Reset flag
     }
     
     console.log('🤖 ===== INITIALIZATION COMPLETE =====\n');
+    console.log(`⚠️  ANTI-409-CONFLICT: ENABLED (only one bot instance)`);
   }
 
   initializeBot() {
@@ -215,6 +231,11 @@ class TelegramBotHandler {
       
       this.bot.on('polling_error', (error) => {
         console.error('❌ Telegram polling error:', error.message);
+        // Jika error 409, reset flag agar instance baru bisa jalan
+        if (error.message.includes('409')) {
+          console.log('🔄 Resetting instance flag due to 409 conflict');
+          global._telegramBotInstanceRunning = false;
+        }
       });
       
       this.bot.on('webhook_error', (error) => {
@@ -244,6 +265,7 @@ class TelegramBotHandler {
     } catch (error) {
       console.error('❌ FATAL: Failed to create TelegramBot instance:', error.message);
       console.error('   Stack:', error.stack);
+      global._telegramBotInstanceRunning = false; // Reset flag
     }
   }
 
@@ -441,7 +463,7 @@ class TelegramBotHandler {
   }
 
   // ============================================
-  // GA4 DATA FUNCTIONS
+  // GA4 DATA FUNCTIONS - FIXED VERSION
   // ============================================
 
   async getGA4StatsForArticle(articlePath) {
@@ -541,52 +563,76 @@ class TelegramBotHandler {
     }
   }
 
-getGA4Client() {
-  console.log('🔄 [GA4] Getting GA4 client...');
-  
-  try {
-    // Cek cache global dulu
-    if (global.analyticsDataClient) {
-      console.log('✅ [GA4] Using cached global client');
-      return global.analyticsDataClient;
-    }
+  getGA4Client() {
+    console.log('🔄 [GA4] Getting GA4 client...');
     
-    // Load GA4 module
-    console.log('📦 [GA4] Loading GA4 module...');
-    const ga4Module = require('./services/ga4-client');
-    
-    // Panggil getGA4Client() dari module
-    if (ga4Module.getGA4Client && typeof ga4Module.getGA4Client === 'function') {
-      console.log('✅ [GA4] Calling getGA4Client() from module');
-      const client = ga4Module.getGA4Client();
+    try {
+      // Cek cache global dulu
+      if (global.analyticsDataClient) {
+        console.log('✅ [GA4] Using cached global client');
+        return global.analyticsDataClient;
+      }
       
-      if (client) {
-        // Cache di global untuk reuse
-        global.analyticsDataClient = client;
-        console.log('✅ [GA4] Client cached globally');
-        return client;
+      // 🎯 FIXED: Menggunakan path yang benar './ga4-client' bukan './services/ga4-client'
+      // Karena kedua file berada di folder yang sama: /app/services/
+      console.log('📦 [GA4] Loading GA4 module from ./ga4-client...');
+      
+      let ga4Module;
+      const possiblePaths = [
+        './ga4-client',           // ✅ PATH YANG BENAR (sama folder)
+        './services/ga4-client',  // Fallback (jika struktur berbeda)
+        '../services/ga4-client'  // Fallback lain
+      ];
+      
+      for (const modulePath of possiblePaths) {
+        try {
+          console.log(`   🔍 Trying path: ${modulePath}`);
+          ga4Module = require(modulePath);
+          console.log(`   ✅ Success with path: ${modulePath}`);
+          break;
+        } catch (pathError) {
+          // Lanjut ke path berikutnya
+          console.log(`   ❌ Path ${modulePath} failed: ${pathError.message}`);
+        }
       }
-    }
-    
-    // Fallback ke initializeGA4Client
-    if (ga4Module.initializeGA4Client) {
-      console.log('⚠️  [GA4] Using initializeGA4Client() as fallback');
-      const client = ga4Module.initializeGA4Client();
-      if (client) {
-        global.analyticsDataClient = client;
-        return client;
+      
+      if (!ga4Module) {
+        console.error('❌ [GA4] Could not load module from any path');
+        return null;
       }
+      
+      // Panggil getGA4Client() dari module
+      if (ga4Module.getGA4Client && typeof ga4Module.getGA4Client === 'function') {
+        console.log('✅ [GA4] Calling getGA4Client() from module');
+        const client = ga4Module.getGA4Client();
+        
+        if (client) {
+          // Cache di global untuk reuse
+          global.analyticsDataClient = client;
+          console.log('✅ [GA4] Client cached globally');
+          return client;
+        }
+      }
+      
+      // Fallback ke initializeGA4Client
+      if (ga4Module.initializeGA4Client) {
+        console.log('⚠️  [GA4] Using initializeGA4Client() as fallback');
+        const client = ga4Module.initializeGA4Client();
+        if (client) {
+          global.analyticsDataClient = client;
+          return client;
+        }
+      }
+      
+      console.error('❌ [GA4] No valid client obtained from module');
+      return null;
+      
+    } catch (error) {
+      console.error('❌ [GA4] Error in getGA4Client():', error.message);
+      console.error('   Stack trace:', error.stack?.split('\n')[0]);
+      return null;
     }
-    
-    console.error('❌ [GA4] No valid client obtained from module');
-    return null;
-    
-  } catch (error) {
-    console.error('❌ [GA4] Error in getGA4Client():', error.message);
-    console.error('   Stack trace:', error.stack?.split('\n')[0]);
-    return null;
   }
-}
 
   // ============================================
   // LAPORAN GENERATOR FUNCTIONS
@@ -755,7 +801,7 @@ getGA4Client() {
   }
 
   // ============================================
-  // COMMAND HANDLERS
+  // COMMAND HANDLERS (TIDAK BERUBAH)
   // ============================================
 
   async handleStart(msg) {
@@ -1204,8 +1250,8 @@ getGA4Client() {
     message += `• Limit: 10 kali/hari\n`;
     message += `• Gunakan: <code>/rate_limit</code> untuk cek status\n\n`;
     message += `<b>📈 Data GA4:</b>\n`;
-    message += `• Active Users & Views dari GA4 real-time\n`;
-    message += `• Data spesifik untuk artikel di atas`;
+      message += `• Active Users & Views dari GA4 real-time\n`;
+      message += `• Data spesifik untuk artikel di atas`;
     
     await this.bot.sendMessage(chatId, message, {
       parse_mode: 'HTML',
