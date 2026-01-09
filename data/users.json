@@ -1,17 +1,24 @@
 {
   "8462501080": {
-    "username": "Meningan Pemalang",
+    "username": "meninganpemalang",
     "name": "Meningan Pemalang",
     "registeredAt": "2024-03-15T10:30:00.000Z",
     "registeredBy": "system",
-    "status": "active"
+    "status": "active",
+    "userType": "registered",
+    "article": "florence-in-3-days-culinary-journey-tuscany",
+    "waLink": "https://wa-me.cloud/bin001",
+    "role": "user"
   },
   "185472876": {
-    "username": "iwak sothil",
+    "username": "iwaksothil",
     "name": "iwak sothil",
     "registeredAt": "2026-01-08T00:00:00.000Z",
     "registeredBy": "system",
     "status": "active",
-    "role": "admin"
+    "role": "admin",
+    "userType": "admin",
+    "article": "default",
+    "waLink": "default"
   }
 }
