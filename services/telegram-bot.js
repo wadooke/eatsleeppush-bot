@@ -1,4 +1,4 @@
-// telegram-bot.js - Handler utama dengan Strict Access Control + LAPORAN Thread + Edit User
+// telegram-bot.js - Handler utama dengan Strict Access Control + LAPORAN Thread + Edit User + Rate Limiting
 const TelegramBot = require('node-telegram-bot-api');
 const accessControl = require('../utils/access-control');
 
@@ -8,6 +8,16 @@ class TelegramBotHandler {
     this.bot = null;
     this.isInitialized = false;
     
+    // 🆕 Rate Limiting Database
+    this.rateLimitDB = {}; // Format: userId: { lastCheck: timestamp, dailyCount: number, lastReset: date }
+    
+    this.RATE_LIMIT_CONFIG = {
+      COOLDOWN_MINUTES: 20,     // 20 menit cooldown
+      DAILY_LIMIT: 10,          // 10 kali per hari
+      RESET_HOUR: 0,            // Reset jam 00:00 WIB
+      ALLOWED_THREADS: [0, 7, 5] // Thread dimana /cekvar diizinkan
+    };
+    
     // DEBUG: Tampilkan semua environment variables terkait
     console.log('🔍 Environment Check:');
     console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'not set'}`);
@@ -15,6 +25,11 @@ class TelegramBotHandler {
     console.log(`   TELEGRAM_GROUP_CHAT_ID: ${process.env.TELEGRAM_GROUP_CHAT_ID}`);
     console.log(`   ADMIN_IDS: ${process.env.ADMIN_IDS}`);
     console.log(`   LAPORAN_THREAD_ID: ${process.env.LAPORAN_THREAD_ID || '3 (default)'}`);
+    
+    console.log('🔄 Rate Limiting Configuration:');
+    console.log(`   Cooldown: ${this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES} menit`);
+    console.log(`   Daily Limit: ${this.RATE_LIMIT_CONFIG.DAILY_LIMIT} kali/hari`);
+    console.log(`   Allowed Threads: ${this.RATE_LIMIT_CONFIG.ALLOWED_THREADS.join(', ')}`);
     
     // 🚨 PASTIKAN token ada sebelum mencoba initialize
     if (!process.env.TELEGRAM_BOT_TOKEN) {
@@ -114,8 +129,9 @@ class TelegramBotHandler {
       `📢 PENGUMUMAN: Thread ${process.env.PENGUMUMAN_THREAD_ID || 9}\n\n` +
       `<b>New Features:</b>\n` +
       `✏️ /edit_user - Edit artikel & link user\n` +
+      `⏰ Rate Limiting - 20 menit cooldown, 10x/hari\n` +
       `📊 Auto-laporan di thread 3 (silent)\n\n` +
-      `<i>Try sending /cekvar in your group</i>`;
+      `<i>Try sending /cekvar in allowed threads</i>`;
     
     this.bot.sendMessage(adminId, testMessage, { parse_mode: 'HTML' })
       .then(() => console.log('✅ Test message sent to admin'))
@@ -170,9 +186,213 @@ class TelegramBotHandler {
     
     console.log('✅ Message handlers setup complete');
     console.log('🔴 Strict Access Control: READY');
+    console.log('⏰ Rate Limiting: ACTIVE (20min cooldown, 10x/day)');
     console.log('📊 LAPORAN Thread: 3 (silent mode)');
     console.log('✏️ Edit User: Available for admin');
     console.log('👑 Admin: Thread ALL | 👤 User: Thread 0,7,5 | 🚫 Unregistered: Auto-kick 30min');
+  }
+
+  // ============================================
+  // RATE LIMITING FUNCTIONS
+  // ============================================
+
+  checkRateLimit(userId, threadId) {
+    const now = new Date();
+    const userLimit = this.rateLimitDB[userId] || {
+      lastCheck: null,
+      dailyCount: 0,
+      lastReset: null
+    };
+    
+    // 🚨 Cek jika di thread yang diizinkan
+    if (!this.RATE_LIMIT_CONFIG.ALLOWED_THREADS.includes(threadId)) {
+      return {
+        allowed: false,
+        reason: 'thread_not_allowed',
+        message: `❌ <b>/cekvar hanya bisa di thread:</b>\n\n` +
+                `💬 DISKUSI UMUM (Thread 0)\n` +
+                `📱 APLIKASI (Thread 7)\n` +
+                `🎓 TUTORIAL (Thread 5)\n\n` +
+                `Anda di thread: <b>${threadId}</b>\n` +
+                `Coba pindah ke thread yang diizinkan.`
+      };
+    }
+    
+    // Reset daily count jika sudah lewat hari
+    const resetTime = new Date(now);
+    resetTime.setHours(this.RATE_LIMIT_CONFIG.RESET_HOUR, 0, 0, 0);
+    
+    if (!userLimit.lastReset || now > userLimit.lastReset) {
+      userLimit.dailyCount = 0;
+      userLimit.lastReset = resetTime;
+      console.log(`🔄 Daily limit reset for user ${userId}`);
+    }
+    
+    // Cek daily limit
+    if (userLimit.dailyCount >= this.RATE_LIMIT_CONFIG.DAILY_LIMIT) {
+      const nextReset = new Date(resetTime);
+      nextReset.setDate(nextReset.getDate() + 1);
+      const timeToReset = Math.ceil((nextReset - now) / (1000 * 60 * 60)); // jam
+      
+      return {
+        allowed: false,
+        reason: 'daily_limit_exceeded',
+        message: `❌ <b>DAILY LIMIT TERLAHUI!</b>\n\n` +
+                `Anda sudah menggunakan <b>${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}</b> kali hari ini.\n` +
+                `Limit: <b>${this.RATE_LIMIT_CONFIG.DAILY_LIMIT} kali per hari</b>\n` +
+                `Reset: <b>${timeToReset} jam lagi</b> (00:00 WIB)\n\n` +
+                `<i>Gunakan dengan bijak, jangan spam!</i>`
+      };
+    }
+    
+    // Cek cooldown
+    if (userLimit.lastCheck) {
+      const lastCheckTime = new Date(userLimit.lastCheck);
+      const minutesSinceLast = Math.floor((now - lastCheckTime) / (1000 * 60));
+      
+      if (minutesSinceLast < this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES) {
+        const minutesLeft = this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES - minutesSinceLast;
+        
+        return {
+          allowed: false,
+          reason: 'cooldown_active',
+          message: `⏳ <b>COOLDOWN AKTIF!</b>\n\n` +
+                  `Tunggu <b>${minutesLeft} menit</b> sebelum bisa /cekvar lagi.\n` +
+                  `Cooldown: <b>${this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES} menit</b>\n` +
+                  `Terakhir: <b>${lastCheckTime.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB</b>\n\n` +
+                  `<i>Pemakaian hari ini: ${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}</i>`
+        };
+      }
+    }
+    
+    // Update rate limit
+    userLimit.lastCheck = now;
+    userLimit.dailyCount = (userLimit.dailyCount || 0) + 1;
+    this.rateLimitDB[userId] = userLimit;
+    
+    console.log(`⏰ Rate limit check for ${userId}: ${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT} (thread ${threadId})`);
+    
+    return {
+      allowed: true,
+      reason: 'allowed',
+      dailyCount: userLimit.dailyCount,
+      dailyLimit: this.RATE_LIMIT_CONFIG.DAILY_LIMIT,
+      nextAllowed: new Date(now.getTime() + (this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES * 60000))
+    };
+  }
+
+  getRateLimitInfo(userId) {
+    const userLimit = this.rateLimitDB[userId];
+    if (!userLimit) {
+      return `📊 <b>Rate Limit Info</b>\n\n` +
+             `Belum ada penggunaan /cekvar hari ini.\n` +
+             `Limit: <b>${this.RATE_LIMIT_CONFIG.DAILY_LIMIT} kali/hari</b>\n` +
+             `Cooldown: <b>${this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES} menit</b>\n` +
+             `Thread yang diizinkan: <b>${this.RATE_LIMIT_CONFIG.ALLOWED_THREADS.join(', ')}</b>`;
+    }
+    
+    const now = new Date();
+    const minutesSinceLast = userLimit.lastCheck ? 
+      Math.floor((now - new Date(userLimit.lastCheck)) / (1000 * 60)) : 0;
+    const canUseAgain = userLimit.lastCheck ? 
+      new Date(new Date(userLimit.lastCheck).getTime() + (this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES * 60000)) : now;
+    
+    let status = `✅ Bisa digunakan`;
+    if (userLimit.dailyCount >= this.RATE_LIMIT_CONFIG.DAILY_LIMIT) {
+      status = `❌ DAILY LIMIT`;
+    } else if (minutesSinceLast < this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES) {
+      status = `⏳ COOLDOWN`;
+    }
+    
+    return `📊 <b>Rate Limit Info</b>\n\n` +
+           `Status: <b>${status}</b>\n` +
+           `Pemakaian hari ini: <b>${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}</b>\n` +
+           `Terakhir pakai: <b>${userLimit.lastCheck ? new Date(userLimit.lastCheck).toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' }) : 'Belum'}</b>\n` +
+           `Bisa pakai lagi: <b>${canUseAgain.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' })}</b>\n` +
+           `Cooldown: <b>${this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES} menit</b>\n\n` +
+           `<i>Reset daily limit: 00:00 WIB</i>`;
+  }
+
+  // ============================================
+  // LAPORAN GENERATOR FUNCTIONS
+  // ============================================
+
+  async generateLaporan(userId, userName) {
+    try {
+      // Dapatkan data dari database users.json
+      const users = require('../data/users.json');
+      const userData = users[userId] || {};
+      const fullName = userData.name || userName;
+      
+      // Ambil data custom dari user jika ada
+      const customArticle = userData.article || 'west-african-flavors-jollof-egus...';
+      const customLink = userData.waLink || 'https://wa-me.cloud/bin001';
+      
+      // Data statistik (contoh - bisa diganti dengan data real dari GA4)
+      const stats = {
+        activeUsers: 158,
+        views: 433
+      };
+      
+      const now = new Date();
+      const timeString = now.toLocaleTimeString('id-ID', { 
+        timeZone: 'Asia/Jakarta',
+        hour12: false 
+      }).replace(/\./g, ':');
+      
+      // Format laporan dengan <code> untuk link
+      let laporan = `📈 <b>LAPORAN ${timeString}</b>\n\n`;
+      laporan += `👤 Nama: ${fullName}\n`;
+      laporan += `👤 ID: <code>${userId}</code>\n`;
+      laporan += `🔗 Link: <code>${customLink}</code>\n`; // PAKAI <code> untuk disable preview
+      laporan += `📄 Artikel: ${customArticle}\n\n`;
+      laporan += `<b>📊 PERFORMANCE HARI INI</b>\n`;
+      laporan += `👥 Active User: ${stats.activeUsers}\n`;
+      laporan += `👁️ Views: ${stats.views}\n\n`;
+      laporan += `ℹ️ Data dihitung sejak 00:00 WIB hingga saat ini.\n\n`;
+      laporan += `🕐 Laporan dibuat: ${timeString} WIB`;
+      
+      console.log(`📊 Laporan generated for ${fullName} (${userId})`);
+      console.log(`   Article: ${customArticle}`);
+      console.log(`   Link: <code>${customLink}</code>`);
+      
+      return {
+        success: true,
+        message: laporan,
+        stats: stats
+      };
+      
+    } catch (error) {
+      console.error('❌ Error generating laporan:', error.message);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async sendLaporanToThread(laporanText, threadId = 3) {
+    try {
+      const chatId = process.env.TELEGRAM_GROUP_CHAT_ID;
+      if (!chatId) {
+        console.error('❌ TELEGRAM_GROUP_CHAT_ID not set for laporan');
+        return false;
+      }
+      
+      console.log(`📤 Sending laporan to thread ${threadId}...`);
+      
+      await this.bot.sendMessage(chatId, laporanText, {
+        parse_mode: 'HTML',
+        message_thread_id: threadId
+      });
+      
+      console.log(`✅ Laporan sent to thread ${threadId}`);
+      return true;
+      
+    } catch (error) {
+      console.error('❌ Error sending laporan to thread:', error.message);
+      return false;
+    }
   }
 
   async processMessageWithAccessControl(msg) {
@@ -221,6 +441,9 @@ class TelegramBotHandler {
         case '/cekvar':
           await this.handleCekvar(msg);
           break;
+        case '/rate_limit':
+          await this.handleRateLimit(msg);
+          break;
         case '/scheduler_status':
           await this.handleSchedulerStatus(msg);
           break;
@@ -239,88 +462,6 @@ class TelegramBotHandler {
       }
     } else {
       console.log(`   💬 Regular message from ${userName}`);
-    }
-  }
-
-  // ============================================
-  // LAPORAN GENERATOR FUNCTIONS
-  // ============================================
-
-  async generateLaporan(userId, userName) {
-    try {
-      // Dapatkan data dari database users.json
-      const users = require('../data/users.json');
-      const userData = users[userId] || {};
-      const fullName = userData.name || userName;
-      
-      // Ambil data custom dari user jika ada
-      const customArticle = userData.article || 'west-african-flavors-jollof-egus...';
-      const customLink = userData.waLink || 'https://wa-me.cloud/bin001';
-      
-      // Data statistik (contoh - bisa diganti dengan data real dari GA4)
-      const stats = {
-        activeUsers: 158,
-        views: 433
-      };
-      
-      const now = new Date();
-      const timeString = now.toLocaleTimeString('id-ID', { 
-        timeZone: 'Asia/Jakarta',
-        hour12: false 
-      }).replace(/\./g, ':');
-      
-      // Format laporan sesuai request dengan <code> untuk link
-      let laporan = `📈 <b>LAPORAN ${timeString}</b>\n\n`;
-      laporan += `👤 Nama: ${fullName}\n`;
-      laporan += `👤 ID: <code>${userId}</code>\n`;
-      laporan += `🔗 Link: <code>${customLink}</code>\n`; // PAKAI <code> untuk disable preview
-      laporan += `📄 Artikel: ${customArticle}\n\n`;
-      laporan += `<b>📊 PERFORMANCE HARI INI</b>\n`;
-      laporan += `👥 Active User: ${stats.activeUsers}\n`;
-      laporan += `👁️ Views: ${stats.views}\n\n`;
-      laporan += `ℹ️ Data dihitung sejak 00:00 WIB hingga saat ini.\n\n`;
-      laporan += `🕐 Laporan dibuat: ${timeString} WIB`;
-      
-      console.log(`📊 Laporan generated for ${fullName} (${userId})`);
-      console.log(`   Article: ${customArticle}`);
-      console.log(`   Link: ${customLink}`);
-      
-      return {
-        success: true,
-        message: laporan,
-        stats: stats
-      };
-      
-    } catch (error) {
-      console.error('❌ Error generating laporan:', error.message);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  async sendLaporanToThread(laporanText, threadId = 3) {
-    try {
-      const chatId = process.env.TELEGRAM_GROUP_CHAT_ID;
-      if (!chatId) {
-        console.error('❌ TELEGRAM_GROUP_CHAT_ID not set for laporan');
-        return false;
-      }
-      
-      console.log(`📤 Sending laporan to thread ${threadId}...`);
-      
-      await this.bot.sendMessage(chatId, laporanText, {
-        parse_mode: 'HTML',
-        message_thread_id: threadId
-      });
-      
-      console.log(`✅ Laporan sent to thread ${threadId}`);
-      return true;
-      
-    } catch (error) {
-      console.error('❌ Error sending laporan to thread:', error.message);
-      return false;
     }
   }
 
@@ -353,13 +494,19 @@ class TelegramBotHandler {
       welcomeMessage += `/report_revenue - Generate laporan revenue\n`;
       welcomeMessage += `/scheduler_status - Cek status scheduler\n`;
       welcomeMessage += `/laporan_test - Test generate laporan\n`;
+      welcomeMessage += `/rate_limit - Cek rate limit user\n`;
     } else if (isRegistered) {
       welcomeMessage += `✅ <b>Status: USER TERDAFTAR</b>\n`;
       welcomeMessage += `📝 Bisa kirim pesan di thread: <code>0, 7, 5</code>\n`;
       welcomeMessage += `📊 Laporan otomatis di thread: <code>3</code> (silent)\n`;
       welcomeMessage += `❌ Auto-remove di thread: <code>9</code> (pengumuman-only)\n\n`;
+      welcomeMessage += `<b>⏰ RATE LIMITING:</b>\n`;
+      welcomeMessage += `• /cekvar hanya di thread: 0, 7, 5\n`;
+      welcomeMessage += `• Cooldown: 20 menit antar /cekvar\n`;
+      welcomeMessage += `• Limit: 10 kali per hari\n\n`;
       welcomeMessage += `<b>Commands User:</b>\n`;
-      welcomeMessage += `/cekvar - Cek status sistem + Generate laporan\n`;
+      welcomeMessage += `/cekvar - Cek status + Generate laporan\n`;
+      welcomeMessage += `/rate_limit - Cek status rate limit\n`;
       welcomeMessage += `/userid - Lihat ID Anda\n`;
       welcomeMessage += `/scheduler_status - Cek status scheduler\n`;
     } else {
@@ -378,6 +525,127 @@ class TelegramBotHandler {
       console.log(`✅ Welcome message sent to ${userName}`);
     } catch (error) {
       console.error('❌ Error sending welcome message:', error.message);
+    }
+  }
+
+  async handleRateLimit(msg) {
+    const userId = msg.from.id.toString();
+    const userName = msg.from.first_name;
+    const chatId = msg.chat.id;
+    const threadId = msg.message_thread_id || 0;
+    
+    const rateLimitInfo = this.getRateLimitInfo(userId);
+    
+    await this.bot.sendMessage(chatId, rateLimitInfo, {
+      parse_mode: 'HTML',
+      ...(threadId && { message_thread_id: threadId })
+    });
+    
+    console.log(`📊 Rate limit info sent to ${userName} (${userId})`);
+  }
+
+  async handleCekvar(msg) {
+    const userId = msg.from.id.toString();
+    const userName = msg.from.first_name;
+    const chatId = msg.chat.id;
+    const threadId = msg.message_thread_id || 0;
+    
+    console.log(`📊 Processing /cekvar for user ${userName} (${userId}) in thread ${threadId}`);
+    
+    // PERBAIKAN: Gunakan method yang ada
+    const userType = accessControl.getUserType(userId);
+    const users = require('../data/users.json');
+    
+    // 🚨 CEK RATE LIMIT untuk user terdaftar (bukan admin)
+    if (userType === 'registered') {
+      const rateLimitCheck = this.checkRateLimit(userId, threadId);
+      
+      if (!rateLimitCheck.allowed) {
+        console.log(`⏰ Rate limit blocked for ${userId}: ${rateLimitCheck.reason}`);
+        await this.bot.sendMessage(chatId, rateLimitCheck.message, {
+          parse_mode: 'HTML',
+          ...(threadId && { message_thread_id: threadId })
+        });
+        return;
+      }
+      
+      console.log(`✅ Rate limit passed: ${rateLimitCheck.dailyCount}/${rateLimitCheck.dailyLimit}`);
+    }
+    
+    // 1. Kirim status sistem ke user
+    const variables = {
+      'Bot Status': '🟢 Online',
+      'Access Control': '🔒 Active',
+      'Auto-Kick': accessControl.AUTO_KICK_ENABLED ? '✅ Enabled' : '❌ Disabled',
+      'Registered Users': Object.keys(users).length,
+      'User Type': userType,
+      'Admin ID': accessControl.ADMIN_CHAT_ID,
+      'Laporan Thread': process.env.LAPORAN_THREAD_ID || 3
+    };
+    
+    let message = `🔍 <b>Status Sistem</b>\n\n`;
+    for (const [key, value] of Object.entries(variables)) {
+      message += `${key}: ${value}\n`;
+    }
+    
+    // Tambah rate limit info untuk user
+    if (userType === 'registered') {
+      const userLimit = this.rateLimitDB[userId] || { dailyCount: 0 };
+      message += `\n📊 <b>Rate Limit Info</b>\n`;
+      message += `Pemakaian hari ini: ${userLimit.dailyCount || 0}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}\n`;
+      message += `Cooldown: ${this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES} menit\n`;
+    }
+    
+    message += `\n⏰ Scheduler: Active\n📊 GA4: Connected\n📈 Laporan: Auto-generate (thread ${process.env.LAPORAN_THREAD_ID || 3})`;
+    
+    await this.bot.sendMessage(chatId, message, {
+      parse_mode: 'HTML',
+      ...(threadId && { message_thread_id: threadId })
+    });
+    
+    console.log(`✅ Status sistem sent to ${userId}`);
+    
+    // 2. Jika user terdaftar (bukan admin), GENERATE & KIRIM LAPORAN ke thread 3
+    // TANPA KONFIRMASI KE USER (SILENT MODE)
+    if (userType === 'registered') {
+      try {
+        console.log(`📊 Generating laporan for registered user ${userName}...`);
+        
+        // Generate laporan
+        const laporanResult = await this.generateLaporan(userId, userName);
+        
+        if (laporanResult.success) {
+          // Kirim ke thread LAPORAN (thread 3) - SILENT, no confirmation
+          const laporanThreadId = process.env.LAPORAN_THREAD_ID || 3;
+          await this.sendLaporanToThread(laporanResult.message, laporanThreadId);
+          
+          console.log(`✅ Laporan sent to thread ${laporanThreadId} for user ${userId} (silent mode)`);
+        } else {
+          console.error(`❌ Failed to generate laporan for ${userId}: ${laporanResult.error}`);
+        }
+      } catch (error) {
+        console.error('❌ Error in laporan process:', error.message);
+        // Tidak ada error message ke user (silent mode)
+      }
+    }
+    
+    // 3. Jika admin, beri info tambahan
+    if (userType === 'admin') {
+      await this.bot.sendMessage(chatId, 
+        `👑 <b>Admin Mode</b>\n\n` +
+        `Sebagai admin, Anda bebas dari rate limiting.\n` +
+        `Commands:\n` +
+        `• /laporan_test - Test generate laporan\n` +
+        `• /edit_user - Edit artikel/link user\n` +
+        `• /daftar - Registrasi user baru\n` +
+        `• /lihat_user - Lihat semua user\n` +
+        `• /rate_limit USER_ID - Cek rate limit user\n\n` +
+        `<i>Registered users akan auto-generate laporan di thread 3 (silent mode)</i>`,
+        {
+          parse_mode: 'HTML',
+          ...(threadId && { message_thread_id: threadId })
+        }
+      );
     }
   }
 
@@ -416,7 +684,10 @@ class TelegramBotHandler {
       index++;
     }
     
-    message += `<b>Edit User:</b> Gunakan <code>/edit_user USER_ID</code> untuk edit artikel/link`;
+    message += `<b>Commands:</b>\n`;
+    message += `<code>/edit_user USER_ID</code> - Edit artikel/link\n`;
+    message += `<code>/rate_limit USER_ID</code> - Cek rate limit\n`;
+    message += `<code>/hapus_user USER_ID</code> - Hapus user`;
     
     await this.bot.sendMessage(chatId, message, {
       parse_mode: 'HTML',
@@ -627,90 +898,16 @@ class TelegramBotHandler {
     message += `• 💬 Diskusi: ${[0, 7, 5].includes(threadId) ? '✅' : '❌'}\n`;
     message += `• 📊 Laporan: ${threadId === 3 ? '✅ (auto-generate)' : '❌'}\n`;
     message += `• 📢 Pengumuman: ${threadId === 9 ? '❌ (bot-only)' : '✅'}\n`;
+    message += `\n<b>Rate Limit:</b>\n`;
+    message += `• /cekvar hanya di thread: 0, 7, 5\n`;
+    message += `• Cooldown: 20 menit\n`;
+    message += `• Limit: 10 kali/hari\n`;
+    message += `• Gunakan: <code>/rate_limit</code> untuk cek status`;
     
     await this.bot.sendMessage(chatId, message, {
       parse_mode: 'HTML',
       ...(threadId && { message_thread_id: threadId })
     });
-  }
-
-  async handleCekvar(msg) {
-    const userId = msg.from.id.toString();
-    const userName = msg.from.first_name;
-    const chatId = msg.chat.id;
-    const threadId = msg.message_thread_id || 0;
-    
-    console.log(`📊 Processing /cekvar for user ${userName} (${userId})`);
-    
-    // Gunakan method yang ada
-    const userType = accessControl.getUserType(userId);
-    const users = require('../data/users.json');
-    
-    // 1. Kirim status sistem ke user
-    const variables = {
-      'Bot Status': '🟢 Online',
-      'Access Control': '🔒 Active',
-      'Auto-Kick': accessControl.AUTO_KICK_ENABLED ? '✅ Enabled' : '❌ Disabled',
-      'Registered Users': Object.keys(users).length,
-      'User Type': userType,
-      'Admin ID': accessControl.ADMIN_CHAT_ID,
-      'Laporan Thread': process.env.LAPORAN_THREAD_ID || 3
-    };
-    
-    let message = `🔍 <b>Status Sistem</b>\n\n`;
-    for (const [key, value] of Object.entries(variables)) {
-      message += `${key}: ${value}\n`;
-    }
-    
-    message += `\n⏰ Scheduler: Active\n📊 GA4: Connected\n📈 Laporan: Auto-generate (thread ${process.env.LAPORAN_THREAD_ID || 3})`;
-    
-    await this.bot.sendMessage(chatId, message, {
-      parse_mode: 'HTML',
-      ...(threadId && { message_thread_id: threadId })
-    });
-    
-    console.log(`✅ Status sistem sent to ${userId}`);
-    
-    // 2. Jika user terdaftar (bukan admin), GENERATE & KIRIM LAPORAN ke thread 3
-    // TANPA KONFIRMASI KE USER (SILENT MODE)
-    if (userType === 'registered') {
-      try {
-        console.log(`📊 Generating laporan for registered user ${userName}...`);
-        
-        // Generate laporan
-        const laporanResult = await this.generateLaporan(userId, userName);
-        
-        if (laporanResult.success) {
-          // Kirim ke thread LAPORAN (thread 3) - SILENT, no confirmation
-          const laporanThreadId = process.env.LAPORAN_THREAD_ID || 3;
-          await this.sendLaporanToThread(laporanResult.message, laporanThreadId);
-          
-          console.log(`✅ Laporan sent to thread ${laporanThreadId} for user ${userId} (silent mode)`);
-        } else {
-          console.error(`❌ Failed to generate laporan for ${userId}: ${laporanResult.error}`);
-        }
-      } catch (error) {
-        console.error('❌ Error in laporan process:', error.message);
-        // Tidak ada error message ke user (silent mode)
-      }
-    }
-    
-    // 3. Jika admin, beri info tambahan
-    if (userType === 'admin') {
-      await this.bot.sendMessage(chatId, 
-        `👑 <b>Admin Mode</b>\n\n` +
-        `Sebagai admin, Anda bisa:\n` +
-        `• Gunakan /laporan_test untuk test generate laporan\n` +
-        `• Gunakan /edit_user untuk edit artikel/link user\n` +
-        `• Gunakan /daftar untuk registrasi user baru\n` +
-        `• Gunakan /lihat_user untuk melihat semua user\n\n` +
-        `<i>Registered users akan auto-generate laporan di thread 3 (silent mode)</i>`,
-        {
-          parse_mode: 'HTML',
-          ...(threadId && { message_thread_id: threadId })
-        }
-      );
-    }
   }
 
   async handleLaporanTest(msg) {
@@ -816,11 +1013,13 @@ class TelegramBotHandler {
       message += `<code>/hapus_user USER_ID</code> - Hapus user\n`;
       message += `<code>/report_revenue</code> - Generate laporan\n`;
       message += `<code>/scheduler_status</code> - Cek scheduler\n`;
-      message += `<code>/laporan_test</code> - Test generate laporan\n\n`;
+      message += `<code>/laporan_test</code> - Test generate laporan\n`;
+      message += `<code>/rate_limit USER_ID</code> - Cek rate limit user\n\n`;
     }
     
     message += `<b>👤 USER COMMANDS:</b>\n`;
     message += `<code>/cekvar</code> - Cek status sistem + Generate laporan (silent)\n`;
+    message += `<code>/rate_limit</code> - Cek status rate limit Anda\n`;
     message += `<code>/userid</code> - Lihat ID Anda\n`;
     message += `<code>/scheduler_status</code> - Cek scheduler\n`;
     message += `<code>/start</code> - Menu awal\n\n`;
@@ -835,6 +1034,11 @@ class TelegramBotHandler {
     message += `• Laporan dikirim ke Thread 3 (silent mode)\n`;
     message += `• Artikel path bisa di-edit admin dengan <code>/edit_user</code>\n`;
     message += `• Link WA menggunakan tag &lt;code&gt; untuk disable preview\n\n`;
+    
+    message += `<b>⏰ RATE LIMITING:</b>\n`;
+    message += `• /cekvar hanya di thread: 0, 7, 5\n`;
+    message += `• Cooldown: 20 menit antar /cekvar\n`;
+    message += `• Limit: 10 kali per hari\n\n`;
     
     message += `<i>Hubungi admin jika ada masalah: ${accessControl.ADMIN_CHAT_ID}</i>`;
     
@@ -981,6 +1185,7 @@ class TelegramBotHandler {
         `• Akses chat thread 0,7,5\n` +
         `• Auto-generate laporan di thread 3 dengan /cekvar (silent)\n` +
         `• Admin bisa edit artikel/link dengan /edit_user\n` +
+        `• Rate limiting: 20 menit cooldown, 10x/hari\n` +
         `• Tidak akan di-kick otomatis\n\n` +
         `<i>Default link: https://wa-me.cloud/bin001</i>\n` +
         `<i>Default artikel: west-african-flavors-jollof-egus...</i>`,
