@@ -9,11 +9,83 @@ const path = require('path');
 function loadUserDatabase() {
     try {
         const filePath = path.join(__dirname, '../data/users.json');
+        
+        // Cek jika file exists
+        if (!fs.existsSync(filePath)) {
+            console.error('❌ users.json file not found at:', filePath);
+            
+            // Buat file dengan struktur default
+            const defaultData = {
+                "185472876": {
+                    "username": "iwaksothil",
+                    "name": "iwak sothil",
+                    "registeredAt": "2026-01-08T00:00:00.000Z",
+                    "registeredBy": "system",
+                    "status": "active",
+                    "role": "admin",
+                    "userType": "admin",
+                    "article": "default",
+                    "waLink": "default"
+                }
+            };
+            
+            // Buat direktori jika belum ada
+            const dirPath = path.dirname(filePath);
+            if (!fs.existsSync(dirPath)) {
+                fs.mkdirSync(dirPath, { recursive: true });
+            }
+            
+            // Tulis file default
+            fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2), 'utf8');
+            console.log('✅ Created default users.json file');
+            return defaultData;
+        }
+        
+        // Baca file
         const data = fs.readFileSync(filePath, 'utf8');
-        return JSON.parse(data);
+        
+        // Validasi JSON
+        if (!data.trim()) {
+            console.error('❌ users.json is empty');
+            return {};
+        }
+        
+        const parsed = JSON.parse(data);
+        
+        // Validasi struktur
+        Object.keys(parsed).forEach(userId => {
+            if (!parsed[userId].userType) {
+                parsed[userId].userType = parsed[userId].role === 'admin' ? 'admin' : 'registered';
+            }
+            if (!parsed[userId].article) {
+                parsed[userId].article = 'default';
+            }
+            if (!parsed[userId].waLink) {
+                parsed[userId].waLink = 'https://wa-me.cloud/bin001';
+            }
+        });
+        
+        console.log(`✅ Loaded ${Object.keys(parsed).length} users from database`);
+        return parsed;
+        
     } catch (error) {
-        console.error('❌ Error loading user database:', error.message);
-        return {};
+        console.error('❌ CRITICAL: Error loading user database:', error.message);
+        console.error('   Stack:', error.stack);
+        
+        // Fallback ke data minimal
+        return {
+            "185472876": {
+                "username": "iwaksothil",
+                "name": "iwak sothil",
+                "registeredAt": new Date().toISOString(),
+                "registeredBy": "system",
+                "status": "active",
+                "role": "admin",
+                "userType": "admin",
+                "article": "default",
+                "waLink": "default"
+            }
+        };
     }
 }
 
