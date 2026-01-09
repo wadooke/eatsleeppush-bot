@@ -64,19 +64,146 @@ setTimeout(async () => {
   }
   
   // ============================================
-  // NEW TELEGRAM BOT HANDLER WITH STRICT ACCESS CONTROL
+  // TELEGRAM BOT INITIALIZATION - DEBUG VERSION
   // ============================================
-  console.log('🤖 Initializing Telegram Bot with Access Control...');
+  console.log('\n🤖 ===== TELEGRAM BOT INITIALIZATION START =====');
   
   try {
-    // TelegramBotHandler akan auto-initialize dan handle semua commands
-    require('./services/telegram-bot');
-    console.log('✅ Telegram Bot Handler initialized');
+    // 🚨 DEBUG 1: Cek file existence
+    const fs = require('fs');
+    const path = require('path');
+    const telegramBotPath = path.join(__dirname, 'services', 'telegram-bot.js');
+    
+    console.log(`🔍 Checking telegram-bot.js at: ${telegramBotPath}`);
+    
+    if (!fs.existsSync(telegramBotPath)) {
+      console.error('❌ telegram-bot.js file NOT FOUND!');
+      console.error(`   Expected at: ${telegramBotPath}`);
+    } else {
+      console.log('✅ telegram-bot.js file exists');
+      const stats = fs.statSync(telegramBotPath);
+      console.log(`   Size: ${stats.size} bytes`);
+      console.log(`   Modified: ${stats.mtime.toLocaleString()}`);
+    }
+    
+    // 🚨 DEBUG 2: Cek token
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    console.log(`🔐 TELEGRAM_BOT_TOKEN check:`);
+    console.log(`   Exists: ${!!token}`);
+    if (token) {
+      console.log(`   Length: ${token.length} characters`);
+      console.log(`   Preview: ${token.substring(0, 5)}...${token.substring(token.length - 5)}`);
+      console.log(`   Format: ${token.includes(':') ? '✅ Has colon' : '❌ No colon (invalid)'}`);
+    }
+    
+    // 🚨 DEBUG 3: Import module
+    console.log('🔄 Importing TelegramBotHandler module...');
+    
+    try {
+      const TelegramBotHandler = require('./services/telegram-bot');
+      console.log('✅ TelegramBotHandler module imported successfully');
+      console.log(`   Type: ${typeof TelegramBotHandler}`);
+      
+      // 🚨 DEBUG 4: Create instance
+      console.log('🔄 Creating TelegramBotHandler instance...');
+      const botHandler = new TelegramBotHandler();
+      console.log('✅ TelegramBotHandler instance created');
+      
+      // 🚨 DEBUG 5: Manual bot creation as backup
+      console.log('🧪 Creating manual bot instance as backup...');
+      const TelegramBot = require('node-telegram-bot-api');
+      
+      if (token && token.includes(':')) {
+        console.log('🔄 Creating manual TelegramBot with polling...');
+        const manualBot = new TelegramBot(token, { 
+          polling: true,
+          request: {
+            timeout: 60000
+          }
+        });
+        
+        // Test connection
+        manualBot.getMe()
+          .then(info => {
+            console.log(`🎉 MANUAL BOT SUCCESS: @${info.username}`);
+            console.log(`   ID: ${info.id}`);
+            console.log(`   Name: ${info.first_name}`);
+            console.log(`   Can read group messages: ${info.can_read_all_group_messages ? '✅ YES' : '❌ NO'}`);
+            
+            // Setup simple handler
+            manualBot.on('message', (msg) => {
+              const text = msg.text || '';
+              const userName = msg.from?.first_name || 'Unknown';
+              const userId = msg.from?.id;
+              const chatType = msg.chat?.type;
+              
+              console.log(`\n📨 MANUAL BOT: Message from ${userName} (${userId}) in ${chatType}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+              
+              if (text === '/start') {
+                manualBot.sendMessage(msg.chat.id, 
+                  `🤖 <b>EAT SLEEP PUSH BOT v3.0</b>\n\n` +
+                  `Hello ${userName}!\n` +
+                  `Your ID: <code>${userId}</code>\n` +
+                  `Chat Type: ${chatType}\n\n` +
+                  `✅ Manual bot is working!\n` +
+                  `🔒 Access Control: Active\n` +
+                  `👑 Admin: ${ADMIN_CHAT_ID}\n\n` +
+                  `<i>This is a test response from manual bot</i>`,
+                  { parse_mode: 'HTML' }
+                );
+              }
+            });
+            
+            console.log('✅ Manual bot is listening for messages');
+            
+            // Test send message to admin
+            setTimeout(() => {
+              console.log('📨 Sending test message to admin via manual bot...');
+              manualBot.sendMessage(ADMIN_CHAT_ID, 
+                '🤖 <b>MANUAL BOT TEST</b>\n\n' +
+                '✅ Manual bot started successfully\n' +
+                `🕐 Time: ${new Date().toLocaleString('id-ID')}\n` +
+                '📡 Mode: Polling\n' +
+                '🔧 Status: Listening for messages\n\n' +
+                '<i>Try sending /start in your group</i>',
+                { parse_mode: 'HTML' }
+              ).then(() => {
+                console.log('✅ Test message sent to admin via manual bot');
+              }).catch(err => {
+                console.log('⚠️  Could not send test message to admin:', err.message);
+              });
+            }, 3000);
+            
+          })
+          .catch(error => {
+            console.error('❌ Manual bot connection failed:', error.message);
+          });
+      } else {
+        console.error('❌ Token invalid for manual bot');
+      }
+      
+    } catch (importError) {
+      console.error('❌ Failed to import TelegramBotHandler:', importError.message);
+      console.error('   Stack:', importError.stack);
+      
+      // Try alternative import
+      console.log('🔄 Trying alternative import path...');
+      try {
+        const altPath = path.join(__dirname, 'services', 'telegram-bot');
+        const TelegramBotHandler = require(altPath);
+        console.log('✅ Alternative import successful');
+        const botHandler = new TelegramBotHandler();
+      } catch (altError) {
+        console.error('❌ Alternative import also failed:', altError.message);
+      }
+    }
     
   } catch (error) {
-    console.error('❌ Failed to initialize Telegram Bot Handler:', error.message);
-    console.log('⚠️  Bot may not respond to commands');
+    console.error('❌ Telegram bot initialization CRASHED:', error.message);
+    console.error('   Stack:', error.stack);
   }
+  
+  console.log('🤖 ===== TELEGRAM BOT INITIALIZATION END =====\n');
   
   // ============================================
   // REVENUE REPORTER & SCHEDULER INTEGRATION
@@ -177,13 +304,13 @@ setTimeout(async () => {
         });
         
         if (response.ok) {
-          console.log('📨 Startup message sent to admin');
+          console.log('📨 Startup message sent to admin via HTTP');
         } else {
-          console.warn('⚠️  Failed to send startup message to admin');
+          console.warn('⚠️  Failed to send startup message to admin via HTTP');
         }
       }
     } catch (error) {
-      console.warn('⚠️  Could not send startup message:', error.message);
+      console.warn('⚠️  Could not send startup message via HTTP:', error.message);
     }
   }, 15000);
   
