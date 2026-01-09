@@ -12,14 +12,16 @@ class UserDatabase {
     console.log('📦 UserDatabase instance created');
     
     // Auto-save interval (5 minutes)
-    this.autoSaveInterval = 5 * 60 * 1000;
+    this.autoSaveInterval = 0; // 0 = disabled
+    // this.autoSaveInterval = 5 * 60 * 1000;
     this.saveTimer = null;
     
     // Load database saat startup
     this.loadFromFile();
     
     // Start auto-save
-    this.startAutoSave();
+    // this.startAutoSave();
+    console.log('⏰ Auto-save DISABLED (temporary)');
   }
 
   /**
