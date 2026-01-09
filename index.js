@@ -29,7 +29,7 @@ let botInstanceRunning = false;
 
 // Initialize database FIRST
 console.log('💾 Initializing user database...');
-const userDatabase = require('./services/user-database');
+const userDatabase = require('./data/user-database');
 
 // Tunggu database selesai load
 setTimeout(async () => {
@@ -365,7 +365,7 @@ function createManualBot() {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  const userDb = require('./services/user-database');
+  const userDb = require('./data/user-database');
   res.status(200).json({ 
     status: 'OK', 
     timestamp: new Date().toISOString(),
@@ -393,7 +393,7 @@ app.get('/health', (req, res) => {
 
 // User statistics endpoint
 app.get('/users', (req, res) => {
-  const userDb = require('./services/user-database');
+  const userDb = require('./data/user-database');
   const users = Object.keys(userDb.users || {}).map(id => ({
     id,
     ...userDb.users[id]
@@ -438,7 +438,7 @@ app.use('/reports', express.static('reports'));
 
 // Simple root endpoint
 app.get('/', (req, res) => {
-  const userDb = require('./services/user-database');
+  const userDb = require('./data/user-database');
   res.send(`
     <!DOCTYPE html>
     <html>
