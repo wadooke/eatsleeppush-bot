@@ -541,31 +541,52 @@ class TelegramBotHandler {
     }
   }
 
-  getGA4Client() {
-    try {
-      if (global.analyticsDataClient) {
-        console.log('✅ Using cached GA4 client');
-        return global.analyticsDataClient;
-      }
-      
-      console.log('🔄 Initializing GA4 client...');
-      const { initializeGA4Client } = require('./services/ga4-client');
-      const client = initializeGA4Client();
+getGA4Client() {
+  console.log('🔄 [GA4] Getting GA4 client...');
+  
+  try {
+    // Cek cache global dulu
+    if (global.analyticsDataClient) {
+      console.log('✅ [GA4] Using cached global client');
+      return global.analyticsDataClient;
+    }
+    
+    // Load GA4 module
+    console.log('📦 [GA4] Loading GA4 module...');
+    const ga4Module = require('./services/ga4-client');
+    
+    // Panggil getGA4Client() dari module
+    if (ga4Module.getGA4Client && typeof ga4Module.getGA4Client === 'function') {
+      console.log('✅ [GA4] Calling getGA4Client() from module');
+      const client = ga4Module.getGA4Client();
       
       if (client) {
+        // Cache di global untuk reuse
         global.analyticsDataClient = client;
-        console.log('✅ GA4 client initialized and cached');
+        console.log('✅ [GA4] Client cached globally');
         return client;
       }
-      
-      console.warn('⚠️ Could not initialize GA4 client');
-      return null;
-      
-    } catch (error) {
-      console.error('❌ Error getting GA4 client:', error.message);
-      return null;
     }
+    
+    // Fallback ke initializeGA4Client
+    if (ga4Module.initializeGA4Client) {
+      console.log('⚠️  [GA4] Using initializeGA4Client() as fallback');
+      const client = ga4Module.initializeGA4Client();
+      if (client) {
+        global.analyticsDataClient = client;
+        return client;
+      }
+    }
+    
+    console.error('❌ [GA4] No valid client obtained from module');
+    return null;
+    
+  } catch (error) {
+    console.error('❌ [GA4] Error in getGA4Client():', error.message);
+    console.error('   Stack trace:', error.stack?.split('\n')[0]);
+    return null;
   }
+}
 
   // ============================================
   // LAPORAN GENERATOR FUNCTIONS
