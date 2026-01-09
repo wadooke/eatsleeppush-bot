@@ -12,3 +12,9 @@ yarn-error.log*
 # Environment
 .DS_Store
 Thumbs.db
+
+# Abaikan file user database yang di-generate
+data/users.json
+data/users.json.backup
+# Anda bisa menambahkan pola lain untuk data dinamis
+data/*.tmp
