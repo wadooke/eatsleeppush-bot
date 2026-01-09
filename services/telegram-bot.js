@@ -350,48 +350,100 @@ class TelegramBotHandler {
   // RATE LIMITING FUNCTIONS
   // ============================================
 
-checkRateLimit(userId, threadId) {
+  checkRateLimit(userId, threadId) {
     const now = new Date();
     const userLimit = this.rateLimitDB[userId] || {
-        lastCheck: null,
-        dailyCount: 0,
-        lastReset: null
+      lastCheck: null,
+      dailyCount: 0,
+      lastReset: null
     };
     
-    console.log(`🔍 RATE LIMIT DEBUG for ${userId}:`);
-    console.log(`   Daily count: ${userLimit.dailyCount}`);
+    console.log(`🔍 RATE LIMIT CHECK for ${userId} in thread ${threadId}`);
+    console.log(`   Server time: ${now.toISOString()}`);
     console.log(`   Last check: ${userLimit.lastCheck}`);
-    console.log(`   Now: ${now.toISOString()}`);
+    console.log(`   Daily count: ${userLimit.dailyCount}`);
+    console.log(`   Last reset: ${userLimit.lastReset}`);
     
-    // 🎯 FIX: Hanya cek cooldown jika dailyCount > 0
-    if (userLimit.lastCheck && userLimit.dailyCount > 0) {
-        const lastCheckTime = new Date(userLimit.lastCheck);
-        const minutesSinceLast = Math.floor((now - lastCheckTime) / (1000 * 60));
-        
-        console.log(`   Minutes since last: ${minutesSinceLast}`);
-        
-        if (minutesSinceLast < this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES) {
-            const minutesLeft = this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES - minutesSinceLast;
-            
-            console.log(`   ❌ COOLDOWN ACTIVE: ${minutesLeft} minutes left`);
-            
-            return {
-                allowed: false,
-                reason: 'cooldown_active',
-                message: `⏳ <b>COOLDOWN AKTIF!</b>\n\n` +
-                        `Tunggu <b>${minutesLeft} menit</b> sebelum bisa /cekvar lagi.\n` +
-                        `Cooldown: <b>${this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES} menit</b>\n` +
-                        `Terakhir: <b>${lastCheckTime.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB</b>\n\n` +
-                        `<i>Pemakaian hari ini: ${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}</i>`
-            };
-        }
+    // 1. CEK THREAD ACCESS
+    if (!this.RATE_LIMIT_CONFIG.ALLOWED_THREADS.includes(threadId)) {
+      console.log(`   ❌ Thread ${threadId} not allowed`);
+      return {
+        allowed: false,
+        reason: 'thread_not_allowed',
+        message: `❌ <b>/cekvar hanya bisa di thread:</b>\n\n` +
+                `💬 DISKUSI UMUM (Thread 0)\n` +
+                `📱 APLIKASI (Thread 7)\n` +
+                `🎓 TUTORIAL (Thread 5)\n\n` +
+                `Anda di thread: <b>${threadId}</b>\n` +
+                `Coba pindah ke thread yang diizinkan.`
+      };
     }
     
+    // 2. CEK & RESET DAILY LIMIT (00:00 WIB)
+    const resetTime = new Date();
+    resetTime.setUTCHours(17, 0, 0, 0); // 00:00 WIB = 17:00 UTC
+    
+    // Jika sekarang sudah lewat 00:00 WIB hari ini, set untuk besok
+    if (now > resetTime) {
+      resetTime.setUTCDate(resetTime.getUTCDate() + 1);
+    }
+    
+    console.log(`   Reset time (00:00 WIB): ${resetTime.toISOString()}`);
+    
+    // Reset daily count jika sudah lewat waktu reset
+    if (!userLimit.lastReset || now > userLimit.lastReset) {
+      userLimit.dailyCount = 0;
+      userLimit.lastReset = resetTime;
+      console.log(`   🔄 Daily limit RESET for user ${userId}`);
+    }
+    
+    // 3. CEK DAILY LIMIT
+    if (userLimit.dailyCount >= this.RATE_LIMIT_CONFIG.DAILY_LIMIT) {
+      console.log(`   ❌ Daily limit exceeded: ${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}`);
+      const nextReset = new Date(resetTime);
+      nextReset.setDate(nextReset.getDate() + 1);
+      const timeToReset = Math.ceil((nextReset - now) / (1000 * 60 * 60));
+      
+      return {
+        allowed: false,
+        reason: 'daily_limit_exceeded',
+        message: `❌ <b>DAILY LIMIT TERLAHUI!</b>\n\n` +
+                `Anda sudah menggunakan <b>${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}</b> kali hari ini.\n` +
+                `Limit: <b>${this.RATE_LIMIT_CONFIG.DAILY_LIMIT} kali per hari</b>\n` +
+                `Reset: <b>${timeToReset} jam lagi</b> (00:00 WIB)\n\n` +
+                `<i>Gunakan dengan bijak, jangan spam!</i>`
+      };
+    }
+    
+    // 4. CEK COOLDOWN (HANYA jika sudah pernah pakai hari ini)
+    if (userLimit.lastCheck && userLimit.dailyCount > 0) {
+      const lastCheckTime = new Date(userLimit.lastCheck);
+      const minutesSinceLast = Math.floor((now - lastCheckTime) / (1000 * 60));
+      
+      console.log(`   ⏰ Minutes since last: ${minutesSinceLast}`);
+      
+      if (minutesSinceLast < this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES) {
+        const minutesLeft = this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES - minutesSinceLast;
+        console.log(`   ❌ COOLDOWN ACTIVE: ${minutesLeft} minutes left`);
+        
+        return {
+          allowed: false,
+          reason: 'cooldown_active',
+          message: `⏳ <b>COOLDOWN AKTIF!</b>\n\n` +
+                  `Tunggu <b>${minutesLeft} menit</b> sebelum bisa /cekvar lagi.\n` +
+                  `Cooldown: <b>${this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES} menit</b>\n` +
+                  `Terakhir: <b>${lastCheckTime.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB</b>\n\n` +
+                  `<i>Pemakaian hari ini: ${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}</i>`
+        };
+      }
+    }
+    
+    // 5. ✅ SEMUA VALIDASI LULUS - UPDATE COUNTER
     userLimit.lastCheck = now;
     userLimit.dailyCount = (userLimit.dailyCount || 0) + 1;
     this.rateLimitDB[userId] = userLimit;
     
-    console.log(`⏰ Rate limit check for ${userId}: ${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}`);
+    console.log(`✅ Rate limit PASSED for ${userId}: ${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}`);
     
     return {
       allowed: true,
@@ -413,25 +465,34 @@ checkRateLimit(userId, threadId) {
     }
     
     const now = new Date();
-    const minutesSinceLast = userLimit.lastCheck ? 
-      Math.floor((now - new Date(userLimit.lastCheck)) / (1000 * 60)) : 0;
-    const canUseAgain = userLimit.lastCheck ? 
-      new Date(new Date(userLimit.lastCheck).getTime() + (this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES * 60000)) : now;
+    const lastCheckTime = userLimit.lastCheck ? new Date(userLimit.lastCheck) : null;
+    const minutesSinceLast = lastCheckTime ? 
+      Math.floor((now - lastCheckTime) / (1000 * 60)) : 0;
+    
+    const canUseAgain = lastCheckTime ? 
+      new Date(lastCheckTime.getTime() + (this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES * 60000)) : now;
     
     let status = `✅ Bisa digunakan`;
     if (userLimit.dailyCount >= this.RATE_LIMIT_CONFIG.DAILY_LIMIT) {
       status = `❌ DAILY LIMIT`;
-    } else if (minutesSinceLast < this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES) {
+    } else if (minutesSinceLast < this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES && userLimit.dailyCount > 0) {
       status = `⏳ COOLDOWN`;
     }
+    
+    // Hitung waktu reset (00:00 WIB)
+    const resetTime = new Date();
+    resetTime.setUTCHours(17, 0, 0, 0);
+    if (now > resetTime) resetTime.setUTCDate(resetTime.getUTCDate() + 1);
+    const hoursToReset = Math.ceil((resetTime - now) / (1000 * 60 * 60));
     
     return `📊 <b>Rate Limit Info</b>\n\n` +
            `Status: <b>${status}</b>\n` +
            `Pemakaian hari ini: <b>${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}</b>\n` +
-           `Terakhir pakai: <b>${userLimit.lastCheck ? new Date(userLimit.lastCheck).toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' }) : 'Belum'}</b>\n` +
+           `Terakhir pakai: <b>${lastCheckTime ? lastCheckTime.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' }) : 'Belum'}</b>\n` +
            `Bisa pakai lagi: <b>${canUseAgain.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' })}</b>\n` +
-           `Cooldown: <b>${this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES} menit</b>\n\n` +
-           `<i>Reset daily limit: 00:00 WIB</i>`;
+           `Cooldown: <b>${this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES} menit</b>\n` +
+           `Reset daily limit: <b>${hoursToReset} jam lagi (00:00 WIB)</b>\n\n` +
+           `<i>Thread yang diizinkan: ${this.RATE_LIMIT_CONFIG.ALLOWED_THREADS.join(', ')}</i>`;
   }
 
   // ============================================
