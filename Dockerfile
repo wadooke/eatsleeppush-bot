@@ -14,5 +14,8 @@ RUN npm ci --only=production
 # Salin semua kode aplikasi
 COPY . .
 
+# Opsi 1: Nonaktifkan health check (sederhana)
+HEALTHCHECK NONE
+
 # Jalankan aplikasi
 CMD ["node", "index.js"]
