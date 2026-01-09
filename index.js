@@ -30,8 +30,16 @@ let botInstanceRunning = false;
 // HELPER FUNCTIONS
 function getUserCount() {
   try {
-    const { loadUserDatabase } = require('./services/telegram-bot');
-    const users = loadUserDatabase();
+    const fs = require('fs');
+    const path = require('path');
+    const filePath = path.join(__dirname, 'data', 'users.json');
+    
+    if (!fs.existsSync(filePath)) {
+      return 0;
+    }
+    
+    const data = fs.readFileSync(filePath, 'utf8');
+    const users = JSON.parse(data);
     return Object.keys(users).length;
   } catch (error) {
     console.warn('⚠️  Could not load user database:', error.message);
@@ -41,11 +49,20 @@ function getUserCount() {
 
 function getUserDatabase() {
   try {
-    const { loadUserDatabase } = require('./services/telegram-bot');
-    return loadUserDatabase();
+    const fs = require('fs');
+    const path = require('path');
+    const filePath = path.join(__dirname, 'data', 'users.json');
+    
+    if (!fs.existsSync(filePath)) {
+      return 0;
+    }
+    
+    const data = fs.readFileSync(filePath, 'utf8');
+    const users = JSON.parse(data);
+    return Object.keys(users).length;
   } catch (error) {
     console.warn('⚠️  Could not load user database:', error.message);
-    return {};
+    return 0;
   }
 }
 
