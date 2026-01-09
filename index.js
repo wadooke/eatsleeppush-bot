@@ -11,16 +11,21 @@ const TELEGRAM_GROUP_CHAT_ID = process.env.TELEGRAM_GROUP_CHAT_ID;
 const GA4_PROPERTY_ID = process.env.GA4_PROPERTY_ID;
 const ADMIN_CHAT_ID = process.env.ADMIN_IDS || '185472876';
 const BOT_USERNAME = process.env.BOT_USERNAME || 'eatsleeppush_bot';
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 console.log('✅ Environment variables loaded successfully');
 console.log(`   Group Chat ID: ${TELEGRAM_GROUP_CHAT_ID}`);
 console.log(`   GA4 Property ID: ${GA4_PROPERTY_ID}`);
 console.log(`   Admin Chat ID: ${ADMIN_CHAT_ID}`);
 console.log(`   Bot Username: @${BOT_USERNAME}`);
+console.log(`   Token exists: ${!!TELEGRAM_BOT_TOKEN}`);
 
 // Initialize Express
 const app = express();
 app.use(express.json());
+
+// Flag untuk mencegah multiple instances
+let botInstanceRunning = false;
 
 // Initialize database FIRST
 console.log('💾 Initializing user database...');
@@ -64,12 +69,17 @@ setTimeout(async () => {
   }
   
   // ============================================
-  // TELEGRAM BOT INITIALIZATION - DEBUG VERSION
+  // TELEGRAM BOT INITIALIZATION - FINAL VERSION
   // ============================================
   console.log('\n🤖 ===== TELEGRAM BOT INITIALIZATION START =====');
   
+  if (botInstanceRunning) {
+    console.log('⚠️  Bot instance already running, skipping initialization...');
+    return;
+  }
+  
   try {
-    // 🚨 DEBUG 1: Cek file existence
+    // Cek file existence
     const fs = require('fs');
     const path = require('path');
     const telegramBotPath = path.join(__dirname, 'services', 'telegram-bot.js');
@@ -79,128 +89,55 @@ setTimeout(async () => {
     if (!fs.existsSync(telegramBotPath)) {
       console.error('❌ telegram-bot.js file NOT FOUND!');
       console.error(`   Expected at: ${telegramBotPath}`);
-    } else {
-      console.log('✅ telegram-bot.js file exists');
-      const stats = fs.statSync(telegramBotPath);
-      console.log(`   Size: ${stats.size} bytes`);
-      console.log(`   Modified: ${stats.mtime.toLocaleString()}`);
+      console.log('🧪 Trying to create manual bot as fallback...');
+      createManualBot();
+      return;
     }
     
-    // 🚨 DEBUG 2: Cek token
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    console.log('✅ telegram-bot.js file exists');
+    
+    // Cek token format
     console.log(`🔐 TELEGRAM_BOT_TOKEN check:`);
-    console.log(`   Exists: ${!!token}`);
-    if (token) {
-      console.log(`   Length: ${token.length} characters`);
-      console.log(`   Preview: ${token.substring(0, 5)}...${token.substring(token.length - 5)}`);
-      console.log(`   Format: ${token.includes(':') ? '✅ Has colon' : '❌ No colon (invalid)'}`);
+    if (!TELEGRAM_BOT_TOKEN) {
+      console.error('❌ TELEGRAM_BOT_TOKEN is missing from environment');
+      return;
     }
     
-    // 🚨 DEBUG 3: Import module
+    console.log(`   Length: ${TELEGRAM_BOT_TOKEN.length} characters`);
+    console.log(`   Format: ${TELEGRAM_BOT_TOKEN.includes(':') ? '✅ Valid (has colon)' : '❌ Invalid (no colon)'}`);
+    
+    // Import dan inisialisasi telegram-bot.js
     console.log('🔄 Importing TelegramBotHandler module...');
     
     try {
       const TelegramBotHandler = require('./services/telegram-bot');
       console.log('✅ TelegramBotHandler module imported successfully');
-      console.log(`   Type: ${typeof TelegramBotHandler}`);
       
-      // 🚨 DEBUG 4: Create instance
+      // Create instance
       console.log('🔄 Creating TelegramBotHandler instance...');
       const botHandler = new TelegramBotHandler();
-      console.log('✅ TelegramBotHandler instance created');
       
-      // 🚨 DEBUG 5: Manual bot creation as backup
-      console.log('🧪 Creating manual bot instance as backup...');
-      const TelegramBot = require('node-telegram-bot-api');
+      console.log('🎉 BOT CONNECTED SUCCESSFULLY via telegram-bot.js');
+      console.log('✅ Using main TelegramBotHandler, skipping manual bot');
       
-      if (token && token.includes(':')) {
-        console.log('🔄 Creating manual TelegramBot with polling...');
-        const manualBot = new TelegramBot(token, { 
-          polling: true,
-          request: {
-            timeout: 60000
-          }
-        });
-        
-        // Test connection
-        manualBot.getMe()
-          .then(info => {
-            console.log(`🎉 MANUAL BOT SUCCESS: @${info.username}`);
-            console.log(`   ID: ${info.id}`);
-            console.log(`   Name: ${info.first_name}`);
-            console.log(`   Can read group messages: ${info.can_read_all_group_messages ? '✅ YES' : '❌ NO'}`);
-            
-            // Setup simple handler
-            manualBot.on('message', (msg) => {
-              const text = msg.text || '';
-              const userName = msg.from?.first_name || 'Unknown';
-              const userId = msg.from?.id;
-              const chatType = msg.chat?.type;
-              
-              console.log(`\n📨 MANUAL BOT: Message from ${userName} (${userId}) in ${chatType}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
-              
-              if (text === '/start') {
-                manualBot.sendMessage(msg.chat.id, 
-                  `🤖 <b>EAT SLEEP PUSH BOT v3.0</b>\n\n` +
-                  `Hello ${userName}!\n` +
-                  `Your ID: <code>${userId}</code>\n` +
-                  `Chat Type: ${chatType}\n\n` +
-                  `✅ Manual bot is working!\n` +
-                  `🔒 Access Control: Active\n` +
-                  `👑 Admin: ${ADMIN_CHAT_ID}\n\n` +
-                  `<i>This is a test response from manual bot</i>`,
-                  { parse_mode: 'HTML' }
-                );
-              }
-            });
-            
-            console.log('✅ Manual bot is listening for messages');
-            
-            // Test send message to admin
-            setTimeout(() => {
-              console.log('📨 Sending test message to admin via manual bot...');
-              manualBot.sendMessage(ADMIN_CHAT_ID, 
-                '🤖 <b>MANUAL BOT TEST</b>\n\n' +
-                '✅ Manual bot started successfully\n' +
-                `🕐 Time: ${new Date().toLocaleString('id-ID')}\n` +
-                '📡 Mode: Polling\n' +
-                '🔧 Status: Listening for messages\n\n' +
-                '<i>Try sending /start in your group</i>',
-                { parse_mode: 'HTML' }
-              ).then(() => {
-                console.log('✅ Test message sent to admin via manual bot');
-              }).catch(err => {
-                console.log('⚠️  Could not send test message to admin:', err.message);
-              });
-            }, 3000);
-            
-          })
-          .catch(error => {
-            console.error('❌ Manual bot connection failed:', error.message);
-          });
-      } else {
-        console.error('❌ Token invalid for manual bot');
-      }
+      botInstanceRunning = true;
       
     } catch (importError) {
-      console.error('❌ Failed to import TelegramBotHandler:', importError.message);
-      console.error('   Stack:', importError.stack);
+      console.error('❌ Failed to import/initialize TelegramBotHandler:', importError.message);
+      console.error('   Error details:', importError.stack?.split('\n')[0]);
       
-      // Try alternative import
-      console.log('🔄 Trying alternative import path...');
-      try {
-        const altPath = path.join(__dirname, 'services', 'telegram-bot');
-        const TelegramBotHandler = require(altPath);
-        console.log('✅ Alternative import successful');
-        const botHandler = new TelegramBotHandler();
-      } catch (altError) {
-        console.error('❌ Alternative import also failed:', altError.message);
-      }
+      // Fallback ke manual bot HANYA jika telegram-bot.js gagal
+      console.log('🧪 Creating manual bot instance as backup...');
+      createManualBot();
     }
     
   } catch (error) {
     console.error('❌ Telegram bot initialization CRASHED:', error.message);
-    console.error('   Stack:', error.stack);
+    console.error('   Full error:', error.stack?.split('\n')[0]);
+    
+    // Fallback ke manual bot
+    console.log('🧪 Trying to create manual bot as last resort...');
+    createManualBot();
   }
   
   console.log('🤖 ===== TELEGRAM BOT INITIALIZATION END =====\n');
@@ -291,7 +228,6 @@ setTimeout(async () => {
     // Try to send startup message via HTTP request (since we don't have bot instance here)
     try {
       // Menggunakan Telegram Bot API langsung
-      const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
       if (TELEGRAM_BOT_TOKEN && ADMIN_CHAT_ID) {
         const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
           method: 'POST',
@@ -317,6 +253,113 @@ setTimeout(async () => {
 }, 100); // Initial timeout
 
 // ============================================
+// MANUAL BOT FUNCTION (ONLY FOR FALLBACK)
+// ============================================
+
+function createManualBot() {
+  console.log('🔧 Creating manual bot as fallback...');
+  
+  if (botInstanceRunning) {
+    console.log('⚠️  Bot instance already running, skipping manual bot');
+    return null;
+  }
+  
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_BOT_TOKEN.includes(':')) {
+    console.error('❌ Invalid token for manual bot');
+    return null;
+  }
+  
+  try {
+    const TelegramBot = require('node-telegram-bot-api');
+    const manualBot = new TelegramBot(TELEGRAM_BOT_TOKEN, { 
+      polling: {
+        interval: 300,
+        autoStart: true,
+        params: {
+          timeout: 30,
+          allowed_updates: ['message', 'callback_query']
+        }
+      }
+    });
+    
+    // Setup error handling
+    manualBot.on('polling_error', (error) => {
+      console.error(`❌ Manual bot polling error: ${error.message}`);
+    });
+    
+    manualBot.on('webhook_error', (error) => {
+      console.error(`❌ Manual bot webhook error: ${error.message}`);
+    });
+    
+    // Setup message handler
+    manualBot.on('message', (msg) => {
+      const text = msg.text || '';
+      const userName = msg.from?.first_name || 'Unknown';
+      const userId = msg.from?.id;
+      const chatType = msg.chat?.type;
+      
+      console.log(`📨 MANUAL BOT: Message from ${userName} (${userId}) in ${chatType}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+      
+      // Basic response for /start
+      if (text === '/start') {
+        manualBot.sendMessage(msg.chat.id, 
+          `🤖 <b>EAT SLEEP PUSH BOT v3.0</b>\n\n` +
+          `Hello ${userName}!\n` +
+          `Your ID: <code>${userId}</code>\n` +
+          `Chat Type: ${chatType}\n\n` +
+          `⚠️  Running in MANUAL MODE (fallback)\n` +
+          `📡 Status: Online\n` +
+          `👑 Admin: ${ADMIN_CHAT_ID}\n\n` +
+          `<i>Main bot handler failed, using manual fallback</i>`,
+          { parse_mode: 'HTML' }
+        ).catch(err => console.error('❌ Failed to send message:', err.message));
+      }
+    });
+    
+    // Get bot info
+    manualBot.getMe()
+      .then(info => {
+        console.log(`🎉 MANUAL BOT SUCCESS: @${info.username}`);
+        console.log(`   ID: ${info.id}`);
+        console.log(`   Name: ${info.first_name}`);
+        console.log(`   Can read group messages: ${info.can_read_all_group_messages ? '✅ YES' : '❌ NO'}`);
+        console.log('✅ Manual bot is listening for messages');
+        
+        botInstanceRunning = true;
+        
+        // Send test message to admin
+        setTimeout(() => {
+          console.log('📨 Sending test message to admin via manual bot...');
+          manualBot.sendMessage(ADMIN_CHAT_ID, 
+            '🤖 <b>MANUAL BOT FALLBACK ACTIVATED</b>\n\n' +
+            '⚠️  <b>Main telegram-bot.js failed!</b>\n' +
+            '✅ <b>Manual bot started as fallback</b>\n' +
+            `🕐 Time: ${new Date().toLocaleString('id-ID')}\n` +
+            '📡 Mode: Polling\n' +
+            '🔧 Status: Listening for messages\n\n' +
+            '<i>Try sending /start in your group</i>',
+            { parse_mode: 'HTML' }
+          ).then(() => {
+            console.log('✅ Test message sent to admin via manual bot');
+          }).catch(err => {
+            console.log('⚠️  Could not send test message to admin:', err.message);
+          });
+        }, 3000);
+        
+      })
+      .catch(error => {
+        console.error('❌ Manual bot connection failed:', error.message);
+      });
+    
+    return manualBot;
+    
+  } catch (error) {
+    console.error('❌ Manual bot creation failed:', error.message);
+    return null;
+  }
+}
+
+// ============================================
 // ADDITIONAL ROUTES
 // ============================================
 
@@ -328,6 +371,8 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     service: 'EatSleepPush GA4 Bot',
     version: '3.0.0',
+    bot_status: botInstanceRunning ? 'RUNNING' : 'STOPPED',
+    bot_mode: botInstanceRunning ? 'PRIMARY' : 'OFFLINE',
     features: {
       strict_access_control: true,
       auto_kick_unregistered: true,
@@ -338,10 +383,10 @@ app.get('/health', (req, res) => {
     },
     stats: {
       registered_users: Object.keys(userDb.users || {}).length,
-      ga4_configured: !!process.env.GA4_PROPERTY_ID,
-      admin_configured: !!process.env.ADMIN_CHAT_ID,
-      telegram_connected: true,
-      scheduler_running: false
+      ga4_configured: !!GA4_PROPERTY_ID,
+      admin_configured: !!ADMIN_CHAT_ID,
+      telegram_connected: !!TELEGRAM_BOT_TOKEN,
+      bot_instance_running: botInstanceRunning
     }
   });
 });
@@ -412,6 +457,16 @@ app.get('/', (req, res) => {
         .warning-badge { background: #ef4444; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-left: 5px; }
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
         .stat-card { background: white; padding: 15px; border-radius: 6px; text-align: center; }
+        .bot-status { 
+          display: inline-block; 
+          padding: 5px 10px; 
+          border-radius: 15px; 
+          font-size: 12px; 
+          font-weight: bold;
+        }
+        .bot-running { background: #10b981; color: white; }
+        .bot-stopped { background: #ef4444; color: white; }
+        .bot-fallback { background: #f59e0b; color: white; }
       </style>
     </head>
     <body>
@@ -419,11 +474,23 @@ app.get('/', (req, res) => {
         <h1>🤖 EatSleepPush GA4 Bot v3.0</h1>
         
         <div class="status">
-          <h2>System Status <span class="warning-badge">STRICT ACCESS CONTROL</span></h2>
+          <h2>Bot Status 
+            <span class="bot-status ${botInstanceRunning ? 'bot-running' : 'bot-stopped'}">
+              ${botInstanceRunning ? 'RUNNING' : 'STOPPED'}
+            </span>
+            <span class="warning-badge">STRICT ACCESS CONTROL</span>
+          </h2>
           <div class="stats-grid">
             <div class="stat-card">
               <h3>👥 Registered Users</h3>
               <p style="font-size: 24px; font-weight: bold;">${Object.keys(userDb.users || {}).length}</p>
+            </div>
+            <div class="stat-card">
+              <h3>🤖 Bot Status</h3>
+              <p><span class="${botInstanceRunning ? 'bot-running' : 'bot-stopped'}" style="padding: 5px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
+                ${botInstanceRunning ? '✅ RUNNING' : '❌ STOPPED'}
+              </span></p>
+              <p>Mode: ${botInstanceRunning ? 'PRIMARY' : 'OFFLINE'}</p>
             </div>
             <div class="stat-card">
               <h3>🔒 Access Control</h3>
@@ -493,11 +560,13 @@ process.on('unhandledRejection', (reason, promise) => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n🛑 Received SIGINT. Shutting down gracefully...');
+  botInstanceRunning = false;
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('\n🛑 Received SIGTERM. Shutting down gracefully...');
+  botInstanceRunning = false;
   process.exit(0);
 });
 
@@ -514,6 +583,7 @@ const server = app.listen(PORT, () => {
   console.log(`🔗 Reports: http://localhost:${PORT}/reports`);
   console.log(`🤖 Bot Username: @${BOT_USERNAME}`);
   console.log(`🔒 STRICT ACCESS CONTROL: ENABLED (30min auto-kick)`);
+  console.log(`⚠️  ANTI-409-CONFLICT: ENABLED (only one bot instance)`);
 });
 
 // Server error handling
