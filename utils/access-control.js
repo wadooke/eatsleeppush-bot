@@ -1,5 +1,39 @@
 // utils/access-control.js - Sistem Access Control STRICT dengan Auto-Kick 30 MENIT
-const userDatabase = require('../data/user-database');
+const fs = require('fs');
+const path = require('path');
+
+// HELPER FUNCTION: Load user database from new system
+function loadUserDatabase() {
+    try {
+        const filePath = path.join(__dirname, '../data/users.json');
+        
+        // Cek jika file exists
+        if (!fs.existsSync(filePath)) {
+            console.warn('⚠️  users.json not found, using empty database');
+            return {};
+        }
+        
+        // Baca file
+        const data = fs.readFileSync(filePath, 'utf8');
+        
+        // Validasi JSON
+        if (!data.trim()) {
+            console.warn('⚠️  users.json is empty');
+            return {};
+        }
+        
+        const parsed = JSON.parse(data);
+        console.log(`✅ Loaded ${Object.keys(parsed).length} users from database`);
+        return parsed;
+        
+    } catch (error) {
+        console.error('❌ Error loading user database:', error.message);
+        return {};
+    }
+}
+
+// Load database ONCE at startup
+let userDatabase = loadUserDatabase();
 
 class StrictAccessControl {
   constructor() {
@@ -45,6 +79,13 @@ class StrictAccessControl {
     console.log(`   Admin: ${this.ADMIN_CHAT_ID}`);
     console.log(`   User Threads: [${this.USER_ALLOWED_THREADS.join(', ')}]`);
     console.log(`   Bot-Only Threads: [${this.BOT_ONLY_THREADS.join(', ')}]`);
+    console.log(`   Database: ${Object.keys(userDatabase).length} users loaded`);
+  }
+
+  // Helper method untuk refresh database
+  refreshDatabase() {
+    userDatabase = loadUserDatabase();
+    console.log(`🔄 Refreshed user database: ${Object.keys(userDatabase).length} users`);
   }
 
   /**
@@ -71,9 +112,9 @@ class StrictAccessControl {
    */
   isRegisteredUser(userId) {
     console.log(`🔍 isRegisteredUser CHECK: userId="${userId}"`);
-    console.log(`🔍 Database users:`, Object.keys(userDatabase.users || {}));
+    console.log(`🔍 Database keys:`, Object.keys(userDatabase));
     
-    const result = !!(userDatabase.users && userDatabase.users[userId]);
+    const result = !!userDatabase[userId];
     console.log(`🔍 isRegisteredUser RESULT: ${result}`);
     return result;
   }
@@ -260,7 +301,48 @@ class StrictAccessControl {
     return callback();
   }
 
-  // ... [FUNGSI LAIN TETAP SAMA] ...
+  /**
+   * Schedule auto-kick untuk unregistered user setelah 30 menit
+   */
+  async kickUser(bot, groupChatId, userId, userName) {
+    console.log(`⏰ Scheduling auto-kick for ${userName} (${userId}) in ${this.KICK_DELAY_MINUTES} minutes`);
+    
+    setTimeout(async () => {
+      try {
+        // Refresh database dulu sebelum kick (mungkin sudah terdaftar)
+        this.refreshDatabase();
+        
+        if (this.isRegisteredUser(userId) || this.isAdmin(userId)) {
+          console.log(`✅ User ${userName} (${userId}) now registered/admin, cancelling kick`);
+          return;
+        }
+        
+        console.log(`🚫 Executing auto-kick for unregistered user ${userName} (${userId})`);
+        
+        // Try to kick from group
+        await bot.banChatMember(groupChatId, userId).catch(err => {
+          console.log(`⚠️  Could not kick ${userName}: ${err.message}`);
+        });
+        
+        // Send final notification
+        const kickMessage = `🚫 <b>USER DIKELUARKAN OTOMATIS</b>\n\n` +
+                           `👤 <b>User:</b> ${userName}\n` +
+                           `🆔 <b>ID:</b> <code>${userId}</code>\n` +
+                           `⏰ <b>Waktu:</b> ${this.KICK_DELAY_MINUTES} menit sejak warning pertama\n` +
+                           `📅 <b>Tanggal:</b> ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n` +
+                           `<i>Sistem Strict Access Control - Auto-kick untuk unregistered user</i>`;
+        
+        await bot.sendMessage(groupChatId, kickMessage, {
+          parse_mode: 'HTML'
+        }).catch(() => {});
+        
+        console.log(`✅ Auto-kick completed for ${userName} (${userId})`);
+        
+      } catch (error) {
+        console.error('❌ Error in auto-kick:', error.message);
+      }
+    }, this.KICK_DELAY_MS);
+  }
 
   /**
    * Kirim warning message ke unregistered user
@@ -313,8 +395,6 @@ class StrictAccessControl {
       console.error('❌ Failed to send warning message:', error.message);
     }
   }
-
-  // ... [FUNGSI LAIN TETAP SAMA TIDAK DIUBAH] ...
 
   /**
    * Kirim pesan access denied untuk registered user
