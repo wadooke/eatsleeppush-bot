@@ -468,7 +468,7 @@ class TelegramBotHandler {
 
   async getGA4StatsForArticle(articlePath) {
     try {
-      console.log(`📊 Fetching GA4 stats for article: ${articlePath}`);
+      console.log(`📊 [GA4-REALTIME] Fetching REALTIME stats for article: ${articlePath}`);
       
       const analyticsDataClient = this.getGA4Client();
       
@@ -634,19 +634,48 @@ class TelegramBotHandler {
     }
   }
 
-  // ✅ TAMBAHKAN FUNGSI BARU DI SINI (setelah getGA4StatsForArticle)
+  // ✅ FUNGSI BARU YANG SUDAH DIPERBAIKI
   async getGA4StatsForArticleToday(articlePath) {
     try {
-      const ga4Module = require('./services/ga4-client');
+      console.log(`📊 [GA4-TODAY] Fetching TODAY'S stats for article: ${articlePath}`);
+      
+      // 🎯 FIXED: Menggunakan path yang sama dengan getGA4Client()
+      const possiblePaths = [
+        './ga4-client',           // ✅ PATH YANG BENAR (sama folder)
+        './services/ga4-client',  // Fallback
+        '../services/ga4-client'  // Fallback lain
+      ];
+      
+      let ga4Module = null;
+      let modulePath = null;
+      
+      for (const path of possiblePaths) {
+        try {
+          console.log(`   🔍 Trying path: ${path}`);
+          ga4Module = require(path);
+          console.log(`   ✅ Success with path: ${path}`);
+          modulePath = path;
+          break;
+        } catch (pathError) {
+          console.log(`   ❌ Path ${path} failed: ${pathError.message}`);
+        }
+      }
+      
+      if (!ga4Module) {
+        console.error('❌ [GA4-TODAY] Could not load GA4 module from any path');
+        return { activeUsers: 0, views: 0, source: 'ERROR_MODULE_NOT_FOUND' };
+      }
+      
       if (ga4Module.getGA4StatsForArticleToday) {
+        console.log('✅ [GA4-TODAY] Using new function from module');
         return await ga4Module.getGA4StatsForArticleToday(articlePath);
       } else {
-        // Fallback ke fungsi lama jika versi module belum update
-        console.log('⚠️  Using fallback to old GA4 function');
+        console.log('⚠️  [GA4-TODAY] Using fallback to old GA4 function (new function not found)');
         return await this.getGA4StatsForArticle(articlePath);
       }
     } catch (error) {
       console.error('❌ Error in getGA4StatsForArticleToday:', error.message);
+      console.error('   Stack:', error.stack?.split('\n')[0]);
       return { activeUsers: 0, views: 0, source: 'ERROR' };
     }
   }
@@ -665,6 +694,8 @@ class TelegramBotHandler {
       const customLink = userData.waLink || 'https://wa-me.cloud/bin001';
       
       console.log(`📊 Fetching GA4 data for user ${fullName} (${userId})`);
+      
+      // 🎯 FIXED: Memanggil fungsi baru getGA4StatsForArticleToday
       const stats = await this.getGA4StatsForArticleToday(customArticle);
       
       const now = new Date();
@@ -674,9 +705,9 @@ class TelegramBotHandler {
       }).replace(/\./g, ':');
       
       let laporan = `📈 <b>LAPORAN ${timeString}</b>\n\n`;
-      laporan += `👤 Nama: ${fullName}\n`;
-      laporan += `👤 ID: <code>${userId}</code>\n`;
-      laporan += `🔗 Link: <code>${customLink}</code>\n`;
+      laporan += `👤 Nama: "${fullName}"\n`;
+      laporan += `👤 ID: ${userId}\n`;
+      laporan += `🔗 Link: ${customLink}\n`;
       laporan += `📄 Artikel: ${customArticle}\n\n`;
       laporan += `<b>📊 PERFORMANCE HARI INI</b>\n`;
       laporan += `👥 Active User: ${stats.activeUsers}\n`;
@@ -684,7 +715,7 @@ class TelegramBotHandler {
       laporan += `ℹ️ Data dihitung sejak 00:00 WIB hingga saat ini.\n\n`;
       laporan += `🕐 Laporan dibuat: ${timeString} WIB`;
       
-      console.log(`📊 Laporan generated for ${fullName} (${userId})`);
+      console.log(`📊 Laporan generated for "${fullName}" (${userId})`);
       console.log(`   Article: ${customArticle}`);
       console.log(`   Link: <code>${customLink}</code>`);
       console.log(`   GA4 Stats: Active Users=${stats.activeUsers}, Views=${stats.views} (Source: ${stats.source})`);
@@ -710,17 +741,17 @@ class TelegramBotHandler {
       return {
         success: true,
         message: `📈 <b>LAPORAN ${timeString}</b>\n\n` +
-                `👤 Nama: ${userName}\n` +
-                `👤 ID: <code>${userId}</code>\n` +
-                `🔗 Link: <code>${userData?.waLink || 'https://wa-me.cloud/bin001'}</code>\n` +
+                `👤 Nama: "${userName}"\n` +
+                `👤 ID: ${userId}\n` +
+                `🔗 Link: ${userData?.waLink || 'https://wa-me.cloud/bin001'}\n` +
                 `📄 Artikel: ${userData?.article || 'west-african-flavors-jollof-egus...'}\n\n` +
                 `<b>📊 PERFORMANCE HARI INI</b>\n` +
-                `👥 Active User: 158\n` +
-                `👁️ Views: 433\n\n` +
+                `👥 Active User: 0\n` +
+                `👁️ Views: 0\n\n` +
                 `ℹ️ Data dihitung sejak 00:00 WIB hingga saat ini.\n\n` +
                 `🕐 Laporan dibuat: ${timeString} WIB\n\n` +
                 `<i>⚠️ Data GA4 sedang diupdate...</i>`,
-        stats: { activeUsers: 158, views: 433, source: 'ERROR_FALLBACK' }
+        stats: { activeUsers: 0, views: 0, source: 'ERROR_FALLBACK' }
       };
     }
   }
@@ -1068,7 +1099,7 @@ class TelegramBotHandler {
         `<code>/edit_user 8462501080 article new-article-path</code>\n` +
         `<code>/edit_user 8462501080 link https://wa-me.cloud/bin002</code>\n` +
         `<code>/edit_user 8462501080 name Meningan Baru</code>\n\n` +
-        `<i>Artikel path akan digunakan di laporan GA4 (bisa diganti setiap 2-5 hari)</i>`,
+        `<i>Artikel path ini akan digunakan di laporan GA4 berikutnya.</i>`,
         {
           parse_mode: 'HTML',
           ...(threadId && { message_thread_id: threadId })
@@ -1267,8 +1298,8 @@ class TelegramBotHandler {
     message += `• Limit: 10 kali/hari\n`;
     message += `• Gunakan: <code>/rate_limit</code> untuk cek status\n\n`;
     message += `<b>📈 Data GA4:</b>\n`;
-      message += `• Active Users & Views dari GA4 real-time\n`;
-      message += `• Data spesifik untuk artikel di atas`;
+    message += `• Active Users & Views dari GA4 real-time\n`;
+    message += `• Data spesifik untuk artikel di atas`;
     
     await this.bot.sendMessage(chatId, message, {
       parse_mode: 'HTML',
