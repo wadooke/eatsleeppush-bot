@@ -20,11 +20,14 @@ function loadUserDatabase() {
 function saveUserDatabase(users) {
     try {
         const filePath = path.join(__dirname, '../data/users.json');
+        console.log('🔍 [DEBUG] Path file:', filePath);  // <-- TAMBAH INI
+        console.log('🔍 [DEBUG] Data yang akan disimpan:', JSON.stringify(users, null, 2));
+        
         fs.writeFileSync(filePath, JSON.stringify(users, null, 2), 'utf8');
-        console.log('💾 User database saved to file.');
+        console.log('✅ [DEBUG] File berhasil ditulis!');
         return true;
     } catch (error) {
-        console.error('❌ Failed to save user database:', error.message);
+        console.error('❌ Gagal menyimpan:', error.message);
         return false;
     }
 }
