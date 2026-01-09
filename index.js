@@ -27,13 +27,36 @@ app.use(express.json());
 // Flag untuk mencegah multiple instances
 let botInstanceRunning = false;
 
-// Initialize database FIRST
+// HELPER FUNCTIONS
+function getUserCount() {
+  try {
+    const { loadUserDatabase } = require('./services/telegram-bot');
+    const users = loadUserDatabase();
+    return Object.keys(users).length;
+  } catch (error) {
+    console.warn('⚠️  Could not load user database:', error.message);
+    return 0;
+  }
+}
+
+function getUserDatabase() {
+  try {
+    const { loadUserDatabase } = require('./services/telegram-bot');
+    return loadUserDatabase();
+  } catch (error) {
+    console.warn('⚠️  Could not load user database:', error.message);
+    return {};
+  }
+}
+
+// Initialize database
 console.log('💾 Initializing user database...');
-const userDatabase = {}; // Placeholder agar bot tetap jalan
 
 // Tunggu database selesai load
 setTimeout(async () => {
-  console.log(`   ✅ Loaded ${Object.keys(userDatabase.users).length} registered users`);
+  // Gunakan helper function untuk mendapatkan jumlah user
+  const userCount = getUserCount();
+  console.log(`   ✅ Loaded ${userCount} registered users`);
   
   // Initialize GA4 Client
   console.log('🔧 Initializing GA4 Client...');
@@ -207,6 +230,7 @@ setTimeout(async () => {
   
   // Send startup message after everything is ready
   setTimeout(async () => {
+    const userCount = getUserCount();
     const startupTime = new Date().toLocaleString('id-ID', {
       timeZone: 'Asia/Jakarta',
       hour12: false
@@ -215,7 +239,7 @@ setTimeout(async () => {
     const startupMessage = `🤖 <b>EatSleepPush GA4 Bot v3.0</b>\n\n` +
       `✅ <b>System Startup Complete</b>\n` +
       `🕐 <b>Time:</b> ${startupTime} WIB\n` +
-      `👥 <b>Registered Users:</b> ${Object.keys(userDatabase.users).length}\n` +
+      `👥 <b>Registered Users:</b> ${userCount}\n` +
       `📊 <b>Revenue Reports:</b> 12:00 WIB daily\n` +
       `🔒 <b>Access Control:</b> STRICT ENABLED\n` +
       `⚡ <b>Status:</b> ONLINE\n\n` +
@@ -365,44 +389,60 @@ function createManualBot() {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  const userDb = require('./data/user-database');
-  res.status(200).json({ 
-    status: 'OK', 
-    timestamp: new Date().toISOString(),
-    service: 'EatSleepPush GA4 Bot',
-    version: '3.0.0',
-    bot_status: botInstanceRunning ? 'RUNNING' : 'STOPPED',
-    bot_mode: botInstanceRunning ? 'PRIMARY' : 'OFFLINE',
-    features: {
-      strict_access_control: true,
-      auto_kick_unregistered: true,
-      kick_delay_minutes: 30,
-      revenue_reports: true,
-      automatic_scheduling: true,
-      user_management: true
-    },
-    stats: {
-      registered_users: Object.keys(userDb.users || {}).length,
-      ga4_configured: !!GA4_PROPERTY_ID,
-      admin_configured: !!ADMIN_CHAT_ID,
-      telegram_connected: !!TELEGRAM_BOT_TOKEN,
+  try {
+    const users = getUserDatabase();
+    res.status(200).json({ 
+      status: 'OK', 
+      timestamp: new Date().toISOString(),
+      service: 'EatSleepPush GA4 Bot',
+      version: '3.0.0',
+      bot_status: botInstanceRunning ? 'RUNNING' : 'STOPPED',
+      bot_mode: botInstanceRunning ? 'PRIMARY' : 'OFFLINE',
+      features: {
+        strict_access_control: true,
+        auto_kick_unregistered: true,
+        kick_delay_minutes: 30,
+        revenue_reports: true,
+        automatic_scheduling: true,
+        user_management: true
+      },
+      stats: {
+        registered_users: Object.keys(users).length,
+        ga4_configured: !!GA4_PROPERTY_ID,
+        admin_configured: !!ADMIN_CHAT_ID,
+        telegram_connected: !!TELEGRAM_BOT_TOKEN,
+        bot_instance_running: botInstanceRunning
+      }
+    });
+  } catch (error) {
+    res.status(200).json({ 
+      status: 'WARNING', 
+      message: 'Could not load user database',
+      error: error.message,
       bot_instance_running: botInstanceRunning
-    }
-  });
+    });
+  }
 });
 
 // User statistics endpoint
 app.get('/users', (req, res) => {
-  const userDb = require('./data/user-database');
-  const users = Object.keys(userDb.users || {}).map(id => ({
-    id,
-    ...userDb.users[id]
-  }));
-  
-  res.json({
-    count: users.length,
-    users: users
-  });
+  try {
+    const users = getUserDatabase();
+    const userList = Object.keys(users).map(id => ({
+      id,
+      ...users[id]
+    }));
+    
+    res.json({
+      count: userList.length,
+      users: userList
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: error.message,
+      message: 'Could not load user database'
+    });
+  }
 });
 
 // List reports endpoint
@@ -438,8 +478,11 @@ app.use('/reports', express.static('reports'));
 
 // Simple root endpoint
 app.get('/', (req, res) => {
-  const userDb = require('./data/user-database');
-  res.send(`
+  try {
+    const users = getUserDatabase();
+    const userCount = Object.keys(users).length;
+    
+    res.send(`
     <!DOCTYPE html>
     <html>
     <head>
@@ -483,7 +526,7 @@ app.get('/', (req, res) => {
           <div class="stats-grid">
             <div class="stat-card">
               <h3>👥 Registered Users</h3>
-              <p style="font-size: 24px; font-weight: bold;">${Object.keys(userDb.users || {}).length}</p>
+              <p style="font-size: 24px; font-weight: bold;">${userCount}</p>
             </div>
             <div class="stat-card">
               <h3>🤖 Bot Status</h3>
@@ -541,6 +584,19 @@ app.get('/', (req, res) => {
     </body>
     </html>
   `);
+  } catch (error) {
+    res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head><title>Error</title></head>
+    <body>
+      <h1>⚠️  System Error</h1>
+      <p>Could not load user database: ${error.message}</p>
+      <p>Bot Status: ${botInstanceRunning ? 'RUNNING' : 'STOPPED'}</p>
+    </body>
+    </html>
+    `);
+  }
 });
 
 // ============================================
