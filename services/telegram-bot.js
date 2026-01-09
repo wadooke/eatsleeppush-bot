@@ -634,6 +634,23 @@ class TelegramBotHandler {
     }
   }
 
+  // ✅ TAMBAHKAN FUNGSI BARU DI SINI (setelah getGA4StatsForArticle)
+  async getGA4StatsForArticleToday(articlePath) {
+    try {
+      const ga4Module = require('./services/ga4-client');
+      if (ga4Module.getGA4StatsForArticleToday) {
+        return await ga4Module.getGA4StatsForArticleToday(articlePath);
+      } else {
+        // Fallback ke fungsi lama jika versi module belum update
+        console.log('⚠️  Using fallback to old GA4 function');
+        return await this.getGA4StatsForArticle(articlePath);
+      }
+    } catch (error) {
+      console.error('❌ Error in getGA4StatsForArticleToday:', error.message);
+      return { activeUsers: 0, views: 0, source: 'ERROR' };
+    }
+  }
+    
   // ============================================
   // LAPORAN GENERATOR FUNCTIONS
   // ============================================
@@ -648,7 +665,7 @@ class TelegramBotHandler {
       const customLink = userData.waLink || 'https://wa-me.cloud/bin001';
       
       console.log(`📊 Fetching GA4 data for user ${fullName} (${userId})`);
-      const stats = await this.getGA4StatsForArticle(customArticle);
+      const stats = await this.getGA4StatsForArticleToday(customArticle);
       
       const now = new Date();
       const timeString = now.toLocaleTimeString('id-ID', { 
