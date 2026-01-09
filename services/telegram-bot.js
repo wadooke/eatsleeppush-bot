@@ -6,13 +6,15 @@ const accessControl = require('../utils/access-control');
 const fs = require('fs');
 const path = require('path');
 
+const USERS_FILE_PATH = path.join(__dirname, '../data/users.json');
+
 function loadUserDatabase() {
     try {
-        const filePath = path.join(__dirname, '../data/users.json');
+        console.log(`📂 Loading user database from: ${USERS_FILE_PATH}`);
         
         // Cek jika file exists
-        if (!fs.existsSync(filePath)) {
-            console.error('❌ users.json file not found at:', filePath);
+        if (!fs.existsSync(USERS_FILE_PATH)) {
+            console.error('❌ users.json file not found at:', USERS_FILE_PATH);
             
             // Buat file dengan struktur default
             const defaultData = {
@@ -30,19 +32,20 @@ function loadUserDatabase() {
             };
             
             // Buat direktori jika belum ada
-            const dirPath = path.dirname(filePath);
+            const dirPath = path.dirname(USERS_FILE_PATH);
             if (!fs.existsSync(dirPath)) {
                 fs.mkdirSync(dirPath, { recursive: true });
+                console.log(`📁 Created directory: ${dirPath}`);
             }
             
             // Tulis file default
-            fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2), 'utf8');
+            fs.writeFileSync(USERS_FILE_PATH, JSON.stringify(defaultData, null, 2), 'utf8');
             console.log('✅ Created default users.json file');
             return defaultData;
         }
         
         // Baca file
-        const data = fs.readFileSync(filePath, 'utf8');
+        const data = fs.readFileSync(USERS_FILE_PATH, 'utf8');
         
         // Validasi JSON
         if (!data.trim()) {
@@ -91,16 +94,52 @@ function loadUserDatabase() {
 
 function saveUserDatabase(users) {
     try {
-        const filePath = path.join(__dirname, '../data/users.json');
-        console.log('🔍 [DEBUG] Path file:', filePath);  // <-- TAMBAH INI
-        console.log('🔍 [DEBUG] Data yang akan disimpan:', JSON.stringify(users, null, 2));
+        console.log(`💾 Saving user database to: ${USERS_FILE_PATH}`);
+        console.log(`📊 Users count to save: ${Object.keys(users).length}`);
         
-        fs.writeFileSync(filePath, JSON.stringify(users, null, 2), 'utf8');
-        console.log('✅ [DEBUG] File berhasil ditulis!');
+        // Backup existing file
+        if (fs.existsSync(USERS_FILE_PATH)) {
+            const backupPath = USERS_FILE_PATH + '.backup';
+            fs.copyFileSync(USERS_FILE_PATH, backupPath);
+            console.log(`📦 Created backup at: ${backupPath}`);
+        }
+        
+        // Tulis data baru
+        const dataToWrite = JSON.stringify(users, null, 2);
+        fs.writeFileSync(USERS_FILE_PATH, dataToWrite, 'utf8');
+        
+        // Verifikasi penulisan
+        const fileStats = fs.statSync(USERS_FILE_PATH);
+        const fileContent = fs.readFileSync(USERS_FILE_PATH, 'utf8');
+        const writtenData = JSON.parse(fileContent);
+        
+        console.log(`✅ File successfully written!`);
+        console.log(`📏 File size: ${fileStats.size} bytes`);
+        console.log(`👥 Users written: ${Object.keys(writtenData).length}`);
+        
+        // Log sample data untuk verifikasi
+        const sampleUserIds = Object.keys(writtenData).slice(0, 3);
+        sampleUserIds.forEach(userId => {
+            console.log(`   👤 ${userId}: article="${writtenData[userId]?.article || 'N/A'}", waLink="${writtenData[userId]?.waLink || 'N/A'}"`);
+        });
+        
         return true;
     } catch (error) {
-        console.error('❌ Gagal menyimpan:', error.message);
-        return false;
+        console.error('❌ Gagal menyimpan user database:', error.message);
+        console.error('   Stack:', error.stack);
+        
+        // Coba cara alternatif jika gagal
+        try {
+            console.log('🔄 Trying alternative save method...');
+            const tempPath = USERS_FILE_PATH + '.tmp';
+            fs.writeFileSync(tempPath, JSON.stringify(users, null, 2), 'utf8');
+            fs.renameSync(tempPath, USERS_FILE_PATH);
+            console.log('✅ Alternative save successful!');
+            return true;
+        } catch (altError) {
+            console.error('❌ Alternative save also failed:', altError.message);
+            return false;
+        }
     }
 }
 // ====== END FUNGSI UTILITY ======
@@ -168,15 +207,12 @@ class TelegramBotHandler {
     try {
       console.log('🔄 Creating TelegramBot instance with POLLING mode...');
       
-      // 🚨 GUNAKAN CONSTRUCTOR SEDERHANA DULU untuk testing
-      // PAKAI polling: true langsung, bukan polling object
       this.bot = new TelegramBot(token, { 
-        polling: true  // 🎯 SIMPLE MODE - langsung aktif
+        polling: true
       });
       
       console.log('✅ TelegramBot instance created successfully');
       
-      // Test connection dengan callback style
       this.bot.on('polling_error', (error) => {
         console.error('❌ Telegram polling error:', error.message);
       });
@@ -185,11 +221,9 @@ class TelegramBotHandler {
         console.error('❌ Telegram webhook error:', error.message);
       });
       
-      // Event saat polling berhasil start
       this.bot.on('polling_start', () => {
         console.log('📡 Telegram polling STARTED successfully');
         
-        // Test getMe setelah polling start
         this.bot.getMe()
           .then(botInfo => {
             console.log(`🎉 BOT CONNECTED SUCCESSFULLY:`);
@@ -200,7 +234,6 @@ class TelegramBotHandler {
             console.log(`   👥 Can join groups: ${botInfo.can_join_groups ? '✅ YES' : '❌ NO'}`);
             this.isInitialized = true;
             
-            // Kirim test message ke admin
             this.sendTestMessage();
           })
           .catch(error => {
@@ -242,7 +275,6 @@ class TelegramBotHandler {
       .then(() => console.log('✅ Test message sent to admin'))
       .catch(error => {
         console.log('⚠️  Could not send test message to admin:', error.message);
-        console.log('   Admin may not have started chat with bot yet');
       });
   }
 
@@ -254,7 +286,6 @@ class TelegramBotHandler {
     
     console.log('🔧 Setting up message handlers with Strict Access Control...');
     
-    // Handler untuk SEMUA pesan
     this.bot.on('message', async (msg) => {
       try {
         const userId = msg.from?.id?.toString();
@@ -268,15 +299,12 @@ class TelegramBotHandler {
         console.log(`   💬 Text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
         console.log(`   💬 Chat: ${chatType} (ID: ${msg.chat?.id})`);
         console.log(`   🧵 Thread: ${threadId}`);
-        console.log(`   📅 Time: ${new Date().toLocaleTimeString('id-ID')}`);
         
-        // Skip bot messages
         if (msg.from?.is_bot || !text) {
           console.log('   ⏩ Skipping (bot message or empty)');
           return;
         }
         
-        // Process message dengan access control
         await this.processMessageWithAccessControl(msg);
         
       } catch (error) {
@@ -284,18 +312,16 @@ class TelegramBotHandler {
       }
     });
     
-    // Setup error handlers
     this.bot.on('error', (error) => {
       console.error('❌ Telegram Bot Error:', error.message);
     });
     
     console.log('✅ Message handlers setup complete');
     console.log('🔴 Strict Access Control: READY');
-    console.log('⏰ Rate Limiting: ACTIVE (20min cooldown, 10x/day)');
+    console.log('⏰ Rate Limiting: ACTIVE');
     console.log('📊 LAPORAN Thread: 3 (silent mode)');
     console.log('📈 GA4 Data: REAL-TIME');
     console.log('✏️ Edit User: Available for admin');
-    console.log('👑 Admin: Thread ALL | 👤 User: Thread 0,7,5 | 🚫 Unregistered: Auto-kick 30min');
   }
 
   // ============================================
@@ -310,7 +336,6 @@ class TelegramBotHandler {
       lastReset: null
     };
     
-    // 🚨 Cek jika di thread yang diizinkan
     if (!this.RATE_LIMIT_CONFIG.ALLOWED_THREADS.includes(threadId)) {
       return {
         allowed: false,
@@ -324,7 +349,6 @@ class TelegramBotHandler {
       };
     }
     
-    // Reset daily count jika sudah lewat hari
     const resetTime = new Date(now);
     resetTime.setHours(this.RATE_LIMIT_CONFIG.RESET_HOUR, 0, 0, 0);
     
@@ -334,11 +358,10 @@ class TelegramBotHandler {
       console.log(`🔄 Daily limit reset for user ${userId}`);
     }
     
-    // Cek daily limit
     if (userLimit.dailyCount >= this.RATE_LIMIT_CONFIG.DAILY_LIMIT) {
       const nextReset = new Date(resetTime);
       nextReset.setDate(nextReset.getDate() + 1);
-      const timeToReset = Math.ceil((nextReset - now) / (1000 * 60 * 60)); // jam
+      const timeToReset = Math.ceil((nextReset - now) / (1000 * 60 * 60));
       
       return {
         allowed: false,
@@ -351,7 +374,6 @@ class TelegramBotHandler {
       };
     }
     
-    // Cek cooldown
     if (userLimit.lastCheck) {
       const lastCheckTime = new Date(userLimit.lastCheck);
       const minutesSinceLast = Math.floor((now - lastCheckTime) / (1000 * 60));
@@ -371,12 +393,11 @@ class TelegramBotHandler {
       }
     }
     
-    // Update rate limit
     userLimit.lastCheck = now;
     userLimit.dailyCount = (userLimit.dailyCount || 0) + 1;
     this.rateLimitDB[userId] = userLimit;
     
-    console.log(`⏰ Rate limit check for ${userId}: ${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT} (thread ${threadId})`);
+    console.log(`⏰ Rate limit check for ${userId}: ${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}`);
     
     return {
       allowed: true,
@@ -427,7 +448,6 @@ class TelegramBotHandler {
     try {
       console.log(`📊 Fetching GA4 stats for article: ${articlePath}`);
       
-      // Cek apakah ada GA4 client yang sudah diinisialisasi
       const analyticsDataClient = this.getGA4Client();
       
       if (!analyticsDataClient) {
@@ -441,8 +461,7 @@ class TelegramBotHandler {
         return { activeUsers: 158, views: 433, source: 'DEFAULT_NO_PROPERTY' };
       }
       
-      // Query untuk mendapatkan data hari ini
-      const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
+      const today = new Date().toISOString().split('T')[0];
       
       console.log(`📅 Querying GA4 for ${today}, property: ${propertyId}, article: ${articlePath}`);
       
@@ -471,7 +490,6 @@ class TelegramBotHandler {
       
       console.log(`✅ GA4 response received for article: ${articlePath}`);
       
-      // Process response
       let totalActiveUsers = 0;
       let totalViews = 0;
       
@@ -483,7 +501,6 @@ class TelegramBotHandler {
         
         console.log(`   Found ${response.rows.length} rows, Active Users: ${totalActiveUsers}, Views: ${totalViews}`);
         
-        // Jika data ditemukan, return data real
         if (totalActiveUsers > 0 || totalViews > 0) {
           return {
             activeUsers: totalActiveUsers,
@@ -493,7 +510,6 @@ class TelegramBotHandler {
         }
       }
       
-      // Jika tidak ada data untuk artikel spesifik, coba ambil total hari ini
       console.log(`📊 No specific data for "${articlePath}", trying total today...`);
       
       const [totalResponse] = await analyticsDataClient.runReport({
@@ -521,26 +537,23 @@ class TelegramBotHandler {
       
     } catch (error) {
       console.error('❌ Error fetching GA4 stats:', error.message);
-      console.error('   Error details:', error.code, error.status);
       return { activeUsers: 158, views: 433, source: 'ERROR_FALLBACK' };
     }
   }
 
   getGA4Client() {
     try {
-      // Coba dapatkan GA4 client dari global cache
       if (global.analyticsDataClient) {
         console.log('✅ Using cached GA4 client');
         return global.analyticsDataClient;
       }
       
-      // Coba import dari services
       console.log('🔄 Initializing GA4 client...');
       const { initializeGA4Client } = require('./services/ga4-client');
       const client = initializeGA4Client();
       
       if (client) {
-        global.analyticsDataClient = client; // Cache untuk reuse
+        global.analyticsDataClient = client;
         console.log('✅ GA4 client initialized and cached');
         return client;
       }
@@ -560,16 +573,13 @@ class TelegramBotHandler {
 
   async generateLaporan(userId, userName) {
     try {
-      // Dapatkan data dari database users.json
-      const users = loadUserDatabase(); // 🔄 GUNAKAN FUNGSI HELPER
+      const users = loadUserDatabase();
       const userData = users[userId] || {};
       const fullName = userData.name || userName;
       
-      // Ambil data custom dari user jika ada
       const customArticle = userData.article || 'west-african-flavors-jollof-egus...';
       const customLink = userData.waLink || 'https://wa-me.cloud/bin001';
       
-      // AMBIL DATA REAL DARI GA4
       console.log(`📊 Fetching GA4 data for user ${fullName} (${userId})`);
       const stats = await this.getGA4StatsForArticle(customArticle);
       
@@ -579,15 +589,14 @@ class TelegramBotHandler {
         hour12: false 
       }).replace(/\./g, ':');
       
-      // Format laporan sesuai request (TANPA "real dari GA4" di output)
       let laporan = `📈 <b>LAPORAN ${timeString}</b>\n\n`;
       laporan += `👤 Nama: ${fullName}\n`;
       laporan += `👤 ID: <code>${userId}</code>\n`;
       laporan += `🔗 Link: <code>${customLink}</code>\n`;
       laporan += `📄 Artikel: ${customArticle}\n\n`;
       laporan += `<b>📊 PERFORMANCE HARI INI</b>\n`;
-      laporan += `👥 Active User: ${stats.activeUsers}\n`; // Hanya angka, tanpa teks tambahan
-      laporan += `👁️ Views: ${stats.views}\n\n`; // Hanya angka, tanpa teks tambahan
+      laporan += `👥 Active User: ${stats.activeUsers}\n`;
+      laporan += `👁️ Views: ${stats.views}\n\n`;
       laporan += `ℹ️ Data dihitung sejak 00:00 WIB hingga saat ini.\n\n`;
       laporan += `🕐 Laporan dibuat: ${timeString} WIB`;
       
@@ -605,14 +614,13 @@ class TelegramBotHandler {
     } catch (error) {
       console.error('❌ Error generating laporan:', error.message);
       
-      // Fallback ke data default jika error
       const now = new Date();
       const timeString = now.toLocaleTimeString('id-ID', { 
         timeZone: 'Asia/Jakarta',
         hour12: false 
       }).replace(/\./g, ':');
       
-      const users = loadUserDatabase(); // 🔄 GUNAKAN FUNGSI HELPER
+      const users = loadUserDatabase();
       const userData = users[userId] || {};
       
       return {
@@ -661,7 +669,6 @@ class TelegramBotHandler {
     try {
       console.log('🔐 Checking access control...');
       
-      // Gunakan access control system
       await accessControl.checkAccess(this.bot, msg, async () => {
         console.log('✅ Access granted, processing message...');
         await this.handleMessage(msg);
@@ -679,7 +686,6 @@ class TelegramBotHandler {
     const text = msg.text || '';
     const userName = msg.from?.first_name || 'User';
     
-    // Handle commands
     if (text.startsWith('/')) {
       const command = text.split(' ')[0].split('@')[0].toLowerCase();
       console.log(`   ⚡ Processing command: ${command}`);
@@ -818,9 +824,8 @@ class TelegramBotHandler {
     console.log(`📊 Processing /cekvar for user ${userName} (${userId}) in thread ${threadId}`);
     
     const userType = accessControl.getUserType(userId);
-    const users = loadUserDatabase(); // 🔄 GUNAKAN FUNGSI HELPER
+    const users = loadUserDatabase();
     
-    // 🚨 CEK RATE LIMIT untuk user terdaftar (bukan admin)
     if (userType === 'registered') {
       const rateLimitCheck = this.checkRateLimit(userId, threadId);
       
@@ -836,7 +841,6 @@ class TelegramBotHandler {
       console.log(`✅ Rate limit passed: ${rateLimitCheck.dailyCount}/${rateLimitCheck.dailyLimit}`);
     }
     
-    // 1. Kirim status sistem ke user
     const variables = {
       'Bot Status': '🟢 Online',
       'Access Control': '🔒 Active',
@@ -853,7 +857,6 @@ class TelegramBotHandler {
       message += `${key}: ${value}\n`;
     }
     
-    // Tambah rate limit info untuk user
     if (userType === 'registered') {
       const userLimit = this.rateLimitDB[userId] || { dailyCount: 0 };
       message += `\n📊 <b>Rate Limit Info</b>\n`;
@@ -870,17 +873,13 @@ class TelegramBotHandler {
     
     console.log(`✅ Status sistem sent to ${userId}`);
     
-    // 2. Jika user terdaftar (bukan admin), GENERATE & KIRIM LAPORAN ke thread 3
-    // TANPA KONFIRMASI KE USER (SILENT MODE)
     if (userType === 'registered') {
       try {
         console.log(`📊 Generating laporan for registered user ${userName}...`);
         
-        // Generate laporan dengan data real dari GA4
         const laporanResult = await this.generateLaporan(userId, userName);
         
         if (laporanResult.success) {
-          // Kirim ke thread LAPORAN (thread 3) - SILENT, no confirmation
           const laporanThreadId = process.env.LAPORAN_THREAD_ID || 3;
           await this.sendLaporanToThread(laporanResult.message, laporanThreadId);
           
@@ -891,11 +890,9 @@ class TelegramBotHandler {
         }
       } catch (error) {
         console.error('❌ Error in laporan process:', error.message);
-        // Tidak ada error message ke user (silent mode)
       }
     }
     
-    // 3. Jika admin, beri info tambahan
     if (userType === 'admin') {
       await this.bot.sendMessage(chatId, 
         `👑 <b>Admin Mode</b>\n\n` +
@@ -927,7 +924,7 @@ class TelegramBotHandler {
       return;
     }
     
-    const users = loadUserDatabase(); // 🔄 GUNAKAN FUNGSI HELPER
+    const users = loadUserDatabase();
     const userCount = Object.keys(users).length;
     
     let message = `📋 <b>Daftar User Terdaftar</b>\n\n`;
@@ -976,7 +973,6 @@ class TelegramBotHandler {
     
     const parts = text.split(' ');
     if (parts.length < 2) {
-      // Tampilkan help untuk edit user
       await this.bot.sendMessage(chatId, 
         `✏️ <b>EDIT USER COMMANDS</b>\n\n` +
         `<b>Format:</b>\n` +
@@ -999,10 +995,9 @@ class TelegramBotHandler {
     
     const targetUserId = parts[1];
     
-    // Load users database menggunakan fungsi helper
+    // 🔄 Load users database
     const users = loadUserDatabase();
     
-    // Cek jika user ada
     if (!users[targetUserId]) {
       await this.bot.sendMessage(chatId, 
         `❌ User dengan ID <code>${targetUserId}</code> tidak ditemukan.\n` +
@@ -1015,7 +1010,6 @@ class TelegramBotHandler {
       return;
     }
     
-    // Jika hanya user ID (lihat info)
     if (parts.length === 2) {
       const userData = users[targetUserId];
       const currentName = userData.name || 'undefined';
@@ -1048,7 +1042,6 @@ class TelegramBotHandler {
       return;
     }
     
-    // Jika ada perintah edit
     const editType = parts[2].toLowerCase();
     const editValue = parts.slice(3).join(' ');
     
@@ -1064,22 +1057,27 @@ class TelegramBotHandler {
       return;
     }
     
-    // Update user data
     try {
-      // Update data
+      console.log(`✏️ Updating user ${targetUserId}: ${editType} = ${editValue}`);
+      
       let fieldUpdated = '';
+      let oldValue = '';
+      
       if (editType === 'article') {
+        oldValue = users[targetUserId].article || 'default';
         users[targetUserId].article = editValue;
         fieldUpdated = 'Artikel Path';
-        console.log(`📝 Updated article for ${targetUserId}: ${editValue}`);
+        console.log(`   Changed article from "${oldValue}" to "${editValue}"`);
       } else if (editType === 'link' || editType === 'walink' || editType === 'waLink') {
+        oldValue = users[targetUserId].waLink || 'default';
         users[targetUserId].waLink = editValue;
         fieldUpdated = 'WA Link';
-        console.log(`🔗 Updated WA link for ${targetUserId}: ${editValue}`);
+        console.log(`   Changed WA link from "${oldValue}" to "${editValue}"`);
       } else if (editType === 'name') {
+        oldValue = users[targetUserId].name || 'undefined';
         users[targetUserId].name = editValue;
         fieldUpdated = 'Nama';
-        console.log(`👤 Updated name for ${targetUserId}: ${editValue}`);
+        console.log(`   Changed name from "${oldValue}" to "${editValue}"`);
       } else {
         await this.bot.sendMessage(chatId, 
           `❌ Tipe edit tidak valid. Gunakan: article, link, atau name`,
@@ -1090,26 +1088,40 @@ class TelegramBotHandler {
         return;
       }
       
-      // Tambah timestamp update
       users[targetUserId].lastUpdated = new Date().toISOString();
       users[targetUserId].updatedBy = userId;
       
-      // 🔥 SIMPAN menggunakan fungsi helper
+      // 🔥 SIMPAN KE FILE dengan fungsi yang sudah diperbaiki
+      console.log(`💾 Attempting to save user database...`);
       const saved = saveUserDatabase(users);
       
       if (!saved) {
-        throw new Error('Gagal menyimpan ke file');
+        throw new Error('Gagal menyimpan perubahan ke file users.json');
       }
       
-      // Kirim konfirmasi
+      console.log(`✅ User data saved successfully to ${USERS_FILE_PATH}`);
+      
+      // Verifikasi perubahan
+      const verifyUsers = loadUserDatabase();
+      const verifyValue = editType === 'article' ? verifyUsers[targetUserId]?.article :
+                        editType === 'link' ? verifyUsers[targetUserId]?.waLink :
+                        verifyUsers[targetUserId]?.name;
+      
+      if (verifyValue !== editValue) {
+        console.error(`❌ VERIFICATION FAILED: Saved value "${verifyValue}" doesn't match expected "${editValue}"`);
+        throw new Error('Verifikasi gagal - data tidak sesuai setelah disimpan');
+      }
+      
+      console.log(`✅ Verification passed: "${verifyValue}" matches expected value`);
+      
       let successMessage = `✅ <b>USER BERHASIL DIUPDATE!</b>\n\n`;
       successMessage += `<b>ID:</b> <code>${targetUserId}</code>\n`;
       successMessage += `<b>Field:</b> ${fieldUpdated}\n`;
+      successMessage += `<b>Nilai Lama:</b> ${oldValue}\n`;
       successMessage += `<b>Nilai Baru:</b> ${editType === 'link' ? `<code>${editValue}</code>` : editValue}\n`;
       successMessage += `<b>Waktu:</b> ${new Date().toLocaleString('id-ID')}\n`;
       successMessage += `<b>Oleh:</b> ${msg.from.first_name}\n\n`;
       
-      // Info untuk laporan
       if (editType === 'article') {
         successMessage += `<i>Artikel path ini akan digunakan di laporan GA4 berikutnya.</i>\n`;
         successMessage += `<i>Bisa diganti setiap 2-5 hari sesuai kebutuhan tracking.</i>`;
@@ -1122,13 +1134,16 @@ class TelegramBotHandler {
         ...(threadId && { message_thread_id: threadId })
       });
       
-      console.log(`✅ User ${targetUserId} updated: ${editType} = ${editValue}`);
+      console.log(`✅ User ${targetUserId} updated and confirmed: ${editType} = ${editValue}`);
       
     } catch (error) {
       console.error('❌ Error updating user:', error.message);
+      console.error('   Stack:', error.stack);
       await this.bot.sendMessage(chatId, 
-        `❌ Gagal update user: ${error.message}`,
+        `❌ Gagal update user: ${error.message}\n\n` +
+        `⚠️ <i>Silakan coba lagi atau periksa permission file di server.</i>`,
         {
+          parse_mode: 'HTML',
           ...(threadId && { message_thread_id: threadId })
         }
       );
@@ -1145,7 +1160,7 @@ class TelegramBotHandler {
     const isAdmin = accessControl.isAdmin(userId);
     const isRegistered = accessControl.isRegisteredUser(userId);
     
-    const users = loadUserDatabase(); // 🔄 GUNAKAN FUNGSI HELPER
+    const users = loadUserDatabase();
     const userData = users[userId] || {};
     const customArticle = userData.article || 'default';
     const customLink = userData.waLink || 'default';
@@ -1193,15 +1208,13 @@ class TelegramBotHandler {
     console.log(`🧪 Admin ${userName} testing laporan generation with GA4 data...`);
     
     try {
-      const users = loadUserDatabase(); // 🔄 GUNAKAN FUNGSI HELPER
+      const users = loadUserDatabase();
       const userData = users[userId] || {};
       const customArticle = userData.article || 'west-african-flavors-jollof-egus...';
       
-      // Generate laporan test dengan data real GA4
       const laporanResult = await this.generateLaporan(userId, userName);
       
       if (laporanResult.success) {
-        // Tampilkan preview ke admin dengan info source
         await this.bot.sendMessage(chatId, 
           `🧪 <b>TEST LAPORAN - PREVIEW</b>\n\n` +
           laporanResult.message + `\n\n` +
@@ -1244,11 +1257,11 @@ class TelegramBotHandler {
     
     const now = new Date();
     const nextReport = new Date(now);
-    nextReport.setHours(12, 0, 0, 0); // 12:00 WIB
+    nextReport.setHours(12, 0, 0, 0);
     if (nextReport < now) nextReport.setDate(nextReport.getDate() + 1);
     
     const nextBackup = new Date(now);
-    nextBackup.setHours(10, 0, 0, 0); // 10:00 WIB
+    nextBackup.setHours(10, 0, 0, 0);
     if (nextBackup < now) nextBackup.setDate(nextBackup.getDate() + 1);
     
     let message = `⏰ <b>Status Scheduler</b>\n\n`;
@@ -1368,7 +1381,6 @@ class TelegramBotHandler {
     }
     
     try {
-      // Load users database menggunakan fungsi helper
       const users = loadUserDatabase();
       
       if (!users[targetUserId]) {
@@ -1384,10 +1396,8 @@ class TelegramBotHandler {
       
       const userName = users[targetUserId].name || 'Unknown';
       
-      // Hapus user dari objek
       delete users[targetUserId];
       
-      // 🔥 SIMPAN menggunakan fungsi helper
       const saved = saveUserDatabase(users);
       
       if (!saved) {
@@ -1449,12 +1459,9 @@ class TelegramBotHandler {
     const targetUserId = parts[1];
     const targetUserName = parts.slice(2).join(' ');
     
-    // Daftarkan user
     try {
-      // Load users database menggunakan fungsi helper
       const users = loadUserDatabase();
       
-      // Cek jika user sudah ada
       if (users[targetUserId]) {
         await this.bot.sendMessage(chatId, 
           `❌ User dengan ID <code>${targetUserId}</code> sudah terdaftar.`,
@@ -1466,7 +1473,6 @@ class TelegramBotHandler {
         return;
       }
       
-      // Buat user baru dengan struktur lengkap
       const newUser = {
         username: targetUserName.toLowerCase().replace(/\s+/g, ''),
         name: targetUserName,
@@ -1474,15 +1480,13 @@ class TelegramBotHandler {
         registeredBy: userId,
         status: 'active',
         userType: 'registered',
-        article: 'west-african-flavors-jollof-egus...', // default article
-        waLink: 'https://wa-me.cloud/bin001', // default link
+        article: 'west-african-flavors-jollof-egus...',
+        waLink: 'https://wa-me.cloud/bin001',
         role: 'user'
       };
       
-      // Tambahkan ke database
       users[targetUserId] = newUser;
       
-      // 🔥 SIMPAN menggunakan fungsi helper
       const saved = saveUserDatabase(users);
       
       if (!saved) {
