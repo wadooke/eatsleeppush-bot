@@ -2,6 +2,34 @@
 const TelegramBot = require('node-telegram-bot-api');
 const accessControl = require('../utils/access-control');
 
+// ====== FUNGSI UTILITY UNTUK BACA/TULIS USER DATABASE ======
+const fs = require('fs');
+const path = require('path');
+
+function loadUserDatabase() {
+    try {
+        const filePath = path.join(__dirname, '../data/users.json');
+        const data = fs.readFileSync(filePath, 'utf8');
+        return JSON.parse(data);
+    } catch (error) {
+        console.error('❌ Error loading user database:', error.message);
+        return {};
+    }
+}
+
+function saveUserDatabase(users) {
+    try {
+        const filePath = path.join(__dirname, '../data/users.json');
+        fs.writeFileSync(filePath, JSON.stringify(users, null, 2), 'utf8');
+        console.log('💾 User database saved to file.');
+        return true;
+    } catch (error) {
+        console.error('❌ Failed to save user database:', error.message);
+        return false;
+    }
+}
+// ====== END FUNGSI UTILITY ======
+
 class TelegramBotHandler {
   constructor() {
     console.log('\n🤖 ===== TELEGRAM BOT HANDLER INITIALIZATION =====');
@@ -458,7 +486,7 @@ class TelegramBotHandler {
   async generateLaporan(userId, userName) {
     try {
       // Dapatkan data dari database users.json
-      const users = require('../data/users.json');
+      const users = loadUserDatabase(); // 🔄 GUNAKAN FUNGSI HELPER
       const userData = users[userId] || {};
       const fullName = userData.name || userName;
       
@@ -509,7 +537,7 @@ class TelegramBotHandler {
         hour12: false 
       }).replace(/\./g, ':');
       
-      const users = require('../data/users.json');
+      const users = loadUserDatabase(); // 🔄 GUNAKAN FUNGSI HELPER
       const userData = users[userId] || {};
       
       return {
@@ -715,7 +743,7 @@ class TelegramBotHandler {
     console.log(`📊 Processing /cekvar for user ${userName} (${userId}) in thread ${threadId}`);
     
     const userType = accessControl.getUserType(userId);
-    const users = require('../data/users.json');
+    const users = loadUserDatabase(); // 🔄 GUNAKAN FUNGSI HELPER
     
     // 🚨 CEK RATE LIMIT untuk user terdaftar (bukan admin)
     if (userType === 'registered') {
@@ -824,7 +852,7 @@ class TelegramBotHandler {
       return;
     }
     
-    const users = require('../data/users.json');
+    const users = loadUserDatabase(); // 🔄 GUNAKAN FUNGSI HELPER
     const userCount = Object.keys(users).length;
     
     let message = `📋 <b>Daftar User Terdaftar</b>\n\n`;
@@ -896,8 +924,8 @@ class TelegramBotHandler {
     
     const targetUserId = parts[1];
     
-    // Load users database
-    const users = require('../data/users.json');
+    // Load users database menggunakan fungsi helper
+    const users = loadUserDatabase();
     
     // Cek jika user ada
     if (!users[targetUserId]) {
@@ -963,10 +991,6 @@ class TelegramBotHandler {
     
     // Update user data
     try {
-      const fs = require('fs');
-      const path = require('path');
-      const usersFilePath = path.join(__dirname, '../data/users.json');
-      
       // Update data
       let fieldUpdated = '';
       if (editType === 'article') {
@@ -995,8 +1019,12 @@ class TelegramBotHandler {
       users[targetUserId].lastUpdated = new Date().toISOString();
       users[targetUserId].updatedBy = userId;
       
-      // Save to file
-      fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2));
+      // 🔥 SIMPAN menggunakan fungsi helper
+      const saved = saveUserDatabase(users);
+      
+      if (!saved) {
+        throw new Error('Gagal menyimpan ke file');
+      }
       
       // Kirim konfirmasi
       let successMessage = `✅ <b>USER BERHASIL DIUPDATE!</b>\n\n`;
@@ -1042,7 +1070,7 @@ class TelegramBotHandler {
     const isAdmin = accessControl.isAdmin(userId);
     const isRegistered = accessControl.isRegisteredUser(userId);
     
-    const users = require('../data/users.json');
+    const users = loadUserDatabase(); // 🔄 GUNAKAN FUNGSI HELPER
     const userData = users[userId] || {};
     const customArticle = userData.article || 'default';
     const customLink = userData.waLink || 'default';
@@ -1090,7 +1118,7 @@ class TelegramBotHandler {
     console.log(`🧪 Admin ${userName} testing laporan generation with GA4 data...`);
     
     try {
-      const users = require('../data/users.json');
+      const users = loadUserDatabase(); // 🔄 GUNAKAN FUNGSI HELPER
       const userData = users[userId] || {};
       const customArticle = userData.article || 'west-african-flavors-jollof-egus...';
       
@@ -1265,10 +1293,8 @@ class TelegramBotHandler {
     }
     
     try {
-      const fs = require('fs');
-      const path = require('path');
-      const usersFilePath = path.join(__dirname, '../data/users.json');
-      const users = require('../data/users.json');
+      // Load users database menggunakan fungsi helper
+      const users = loadUserDatabase();
       
       if (!users[targetUserId]) {
         await this.bot.sendMessage(chatId, 
@@ -1283,11 +1309,15 @@ class TelegramBotHandler {
       
       const userName = users[targetUserId].name || 'Unknown';
       
-      // Hapus user
+      // Hapus user dari objek
       delete users[targetUserId];
       
-      // Save to file
-      fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2));
+      // 🔥 SIMPAN menggunakan fungsi helper
+      const saved = saveUserDatabase(users);
+      
+      if (!saved) {
+        throw new Error('Gagal menyimpan ke file');
+      }
       
       await this.bot.sendMessage(chatId, 
         `✅ <b>USER BERHASIL DIHAPUS!</b>\n\n` +
@@ -1346,8 +1376,43 @@ class TelegramBotHandler {
     
     // Daftarkan user
     try {
-      const userDatabase = require('../data/user-database');
-      userDatabase.registerUser(targetUserId, targetUserName, userId);
+      // Load users database menggunakan fungsi helper
+      const users = loadUserDatabase();
+      
+      // Cek jika user sudah ada
+      if (users[targetUserId]) {
+        await this.bot.sendMessage(chatId, 
+          `❌ User dengan ID <code>${targetUserId}</code> sudah terdaftar.`,
+          {
+            parse_mode: 'HTML',
+            ...(threadId && { message_thread_id: threadId })
+          }
+        );
+        return;
+      }
+      
+      // Buat user baru dengan struktur lengkap
+      const newUser = {
+        username: targetUserName.toLowerCase().replace(/\s+/g, ''),
+        name: targetUserName,
+        registeredAt: new Date().toISOString(),
+        registeredBy: userId,
+        status: 'active',
+        userType: 'registered',
+        article: 'west-african-flavors-jollof-egus...', // default article
+        waLink: 'https://wa-me.cloud/bin001', // default link
+        role: 'user'
+      };
+      
+      // Tambahkan ke database
+      users[targetUserId] = newUser;
+      
+      // 🔥 SIMPAN menggunakan fungsi helper
+      const saved = saveUserDatabase(users);
+      
+      if (!saved) {
+        throw new Error('Gagal menyimpan ke file');
+      }
       
       await this.bot.sendMessage(chatId, 
         `✅ <b>User berhasil didaftarkan!</b>\n\n` +
@@ -1370,7 +1435,10 @@ class TelegramBotHandler {
         }
       );
       
+      console.log(`📝 New user registered: ${targetUserName} (${targetUserId}) by admin ${userId}`);
+      
     } catch (error) {
+      console.error('❌ Error registering user:', error.message);
       await this.bot.sendMessage(chatId, 
         `❌ Gagal mendaftarkan user: ${error.message}`,
         {
