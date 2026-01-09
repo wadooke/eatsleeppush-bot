@@ -352,11 +352,17 @@ class TelegramBotHandler {
 
   checkRateLimit(userId, threadId) {
     const now = new Date();
-    const userLimit = this.rateLimitDB[userId] || {
-      lastCheck: null,
-      dailyCount: 0,
-      lastReset: null
-    };
+    
+    // 🎯 PASTIKAN data user ada di database
+    if (!this.rateLimitDB[userId]) {
+      this.rateLimitDB[userId] = {
+        lastCheck: null,
+        dailyCount: 0,
+        lastReset: null
+      };
+    }
+    
+    const userLimit = this.rateLimitDB[userId];
     
     console.log(`🔍 RATE LIMIT CHECK for ${userId} in thread ${threadId}`);
     console.log(`   Server time: ${now.toISOString()}`);
@@ -391,10 +397,16 @@ class TelegramBotHandler {
     console.log(`   Reset time (00:00 WIB): ${resetTime.toISOString()}`);
     
     // Reset daily count jika sudah lewat waktu reset
+    // 🎯 FIX: RESET JUGA lastCheck saat daily reset!
     if (!userLimit.lastReset || now > userLimit.lastReset) {
-      userLimit.dailyCount = 0;
-      userLimit.lastReset = resetTime;
       console.log(`   🔄 Daily limit RESET for user ${userId}`);
+      console.log(`     Old: dailyCount=${userLimit.dailyCount}, lastCheck=${userLimit.lastCheck}`);
+      
+      userLimit.dailyCount = 0;
+      userLimit.lastCheck = null;  // 🎯 FIX KRITIS: Reset lastCheck juga!
+      userLimit.lastReset = resetTime;
+      
+      console.log(`     New: dailyCount=${userLimit.dailyCount}, lastCheck=${userLimit.lastCheck}`);
     }
     
     // 3. CEK DAILY LIMIT
@@ -441,7 +453,6 @@ class TelegramBotHandler {
     // 5. ✅ SEMUA VALIDASI LULUS - UPDATE COUNTER
     userLimit.lastCheck = now;
     userLimit.dailyCount = (userLimit.dailyCount || 0) + 1;
-    this.rateLimitDB[userId] = userLimit;
     
     console.log(`✅ Rate limit PASSED for ${userId}: ${userLimit.dailyCount}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}`);
     
