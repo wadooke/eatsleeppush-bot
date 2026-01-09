@@ -123,9 +123,6 @@ class TelegramBotHandler {
     
     console.log('🔧 Setting up message handlers with Strict Access Control...');
     
-    // 🚨 BYPASS ACCESS CONTROL DULU untuk testing
-    console.log('⚠️  TEMPORARY: Bypassing access control for initial testing');
-    
     // Handler untuk SEMUA pesan
     this.bot.on('message', async (msg) => {
       try {
@@ -224,8 +221,6 @@ class TelegramBotHandler {
     }
   }
 
-  // ... [SISA FUNGSI HANDLER TETAP SAMA SEPERTI SEBELUMNYA]
-  // handleStart, handleDaftar, handleLihatUser, dll...
   async handleStart(msg) {
     const userId = msg.from.id.toString();
     const userName = msg.from.first_name;
@@ -321,14 +316,18 @@ class TelegramBotHandler {
     const chatId = msg.chat.id;
     const threadId = msg.message_thread_id || 0;
     
-    const userInfo = accessControl.getUserInfo(userId);
+    // PERBAIKAN: Gunakan method yang ada, bukan getUserInfo()
+    const userType = accessControl.getUserType(userId);
+    const isAdmin = accessControl.isAdmin(userId);
+    const isRegistered = accessControl.isRegisteredUser(userId);
     
     let message = `👤 <b>Profil User</b>\n\n`;
     message += `Nama: ${userName}\n`;
     message += `ID: <code>${userId}</code>\n`;
-    message += `Status: ${userInfo.userType === 'admin' ? '👑 ADMIN' : '✅ TERDAFTAR'}\n`;
-    message += `Thread Akses: ${userInfo.allowedThreads}\n`;
-    message += `Commands: ${userInfo.allowedCommands.length} tersedia`;
+    message += `Status: ${userType === 'admin' ? '👑 ADMIN' : userType === 'registered' ? '✅ TERDAFTAR' : '❌ BELUM TERDAFTAR'}\n`;
+    message += `Admin: ${isAdmin ? '✅ Ya' : '❌ Bukan'}\n`;
+    message += `Terdaftar: ${isRegistered ? '✅ Ya' : '❌ Belum'}\n`;
+    message += `\n<i>Thread akses berdasarkan status</i>`;
     
     await this.bot.sendMessage(chatId, message, {
       parse_mode: 'HTML',
@@ -341,7 +340,8 @@ class TelegramBotHandler {
     const chatId = msg.chat.id;
     const threadId = msg.message_thread_id || 0;
     
-    const userInfo = accessControl.getUserInfo(userId);
+    // PERBAIKAN: Gunakan method yang ada
+    const userType = accessControl.getUserType(userId);
     const users = require('../data/users.json');
     
     const variables = {
@@ -349,7 +349,7 @@ class TelegramBotHandler {
       'Access Control': '🔒 Active',
       'Auto-Kick': accessControl.AUTO_KICK_ENABLED ? '✅ Enabled' : '❌ Disabled',
       'Registered Users': Object.keys(users).length,
-      'User Type': userInfo.userType,
+      'User Type': userType,
       'Admin ID': accessControl.ADMIN_CHAT_ID
     };
     
@@ -402,11 +402,12 @@ class TelegramBotHandler {
     const chatId = msg.chat.id;
     const threadId = msg.message_thread_id || 0;
     
-    const userInfo = accessControl.getUserInfo(userId);
+    // PERBAIKAN: Gunakan getUserType() bukan getUserInfo()
+    const userType = accessControl.getUserType(userId);
     
     let message = `🆘 <b>Pusat Bantuan</b>\n\n`;
     
-    if (userInfo.userType === 'admin') {
+    if (userType === 'admin') {
       message += `<b>👑 ADMIN COMMANDS:</b>\n`;
       message += `<code>/daftar USER_ID NAMA</code> - Daftarkan user baru\n`;
       message += `<code>/lihat_user</code> - Lihat semua user\n`;
@@ -439,9 +440,9 @@ class TelegramBotHandler {
     const chatId = msg.chat.id;
     const threadId = msg.message_thread_id || 0;
     
-    const userInfo = accessControl.getUserInfo(userId);
+    const userType = accessControl.getUserType(userId);
     
-    if (userInfo.userType === 'unregistered') return;
+    if (userType === 'unregistered') return;
     
     await this.bot.sendMessage(chatId, 
       `❌ Command <code>${command}</code> tidak dikenali.\n` +
@@ -451,6 +452,62 @@ class TelegramBotHandler {
         ...(threadId && { message_thread_id: threadId })
       }
     );
+  }
+
+  async handleDaftar(msg) {
+    const userId = msg.from.id.toString();
+    const chatId = msg.chat.id;
+    const threadId = msg.message_thread_id || 0;
+    const text = msg.text || '';
+    
+    if (!accessControl.isAdmin(userId)) {
+      await this.bot.sendMessage(chatId, '❌ Hanya admin yang bisa mendaftarkan user', {
+        ...(threadId && { message_thread_id: threadId })
+      });
+      return;
+    }
+    
+    const parts = text.split(' ');
+    if (parts.length < 3) {
+      await this.bot.sendMessage(chatId, 
+        'Format salah. Gunakan: <code>/daftar USER_ID NAMA_USER</code>\n' +
+        'Contoh: <code>/daftar 1234567890 Meningan</code>',
+        {
+          parse_mode: 'HTML',
+          ...(threadId && { message_thread_id: threadId })
+        }
+      );
+      return;
+    }
+    
+    const targetUserId = parts[1];
+    const targetUserName = parts.slice(2).join(' ');
+    
+    // Daftarkan user
+    try {
+      const userDatabase = require('../data/user-database');
+      userDatabase.registerUser(targetUserId, targetUserName, userId);
+      
+      await this.bot.sendMessage(chatId, 
+        `✅ User berhasil didaftarkan!\n\n` +
+        `👤 Nama: ${targetUserName}\n` +
+        `🆔 ID: <code>${targetUserId}</code>\n` +
+        `📅 Waktu: ${new Date().toLocaleString('id-ID')}\n` +
+        `👑 Admin: ${msg.from.first_name}`,
+        {
+          parse_mode: 'HTML',
+          ...(threadId && { message_thread_id: threadId })
+        }
+      );
+      
+    } catch (error) {
+      await this.bot.sendMessage(chatId, 
+        `❌ Gagal mendaftarkan user: ${error.message}`,
+        {
+          ...(threadId && { message_thread_id: threadId })
+        }
+      );
+    }
   }
 }
 
