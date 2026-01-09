@@ -930,7 +930,7 @@ class TelegramBotHandler {
     console.log(`📊 Rate limit info sent to ${userName} (${userId})`);
   }
 
-  async handleCekvar(msg) {
+async handleCekvar(msg) {
     const userId = msg.from.id.toString();
     const userName = msg.from.first_name;
     const chatId = msg.chat.id;
@@ -941,91 +941,104 @@ class TelegramBotHandler {
     const userType = accessControl.getUserType(userId);
     const users = loadUserDatabase();
     
+    // ========== USER REGISTERED: SILENT MODE TOTAL ==========
     if (userType === 'registered') {
-      const rateLimitCheck = this.checkRateLimit(userId, threadId);
-      
-      if (!rateLimitCheck.allowed) {
-        console.log(`⏰ Rate limit blocked for ${userId}: ${rateLimitCheck.reason}`);
-        await this.bot.sendMessage(chatId, rateLimitCheck.message, {
-          parse_mode: 'HTML',
-          ...(threadId && { message_thread_id: threadId })
-        });
-        return;
-      }
-      
-      console.log(`✅ Rate limit passed: ${rateLimitCheck.dailyCount}/${rateLimitCheck.dailyLimit}`);
-    }
-    
-    const variables = {
-      'Bot Status': '🟢 Online',
-      'Access Control': '🔒 Active',
-      'Auto-Kick': accessControl.AUTO_KICK_ENABLED ? '✅ Enabled' : '❌ Disabled',
-      'Registered Users': Object.keys(users).length,
-      'User Type': userType,
-      'Admin ID': accessControl.ADMIN_CHAT_ID,
-      'Laporan Thread': process.env.LAPORAN_THREAD_ID || 3,
-      'GA4 Data': '📈 Real-time'
-    };
-    
-    let message = `🔍 <b>Status Sistem</b>\n\n`;
-    for (const [key, value] of Object.entries(variables)) {
-      message += `${key}: ${value}\n`;
-    }
-    
-    if (userType === 'registered') {
-      const userLimit = this.rateLimitDB[userId] || { dailyCount: 0 };
-      message += `\n📊 <b>Rate Limit Info</b>\n`;
-      message += `Pemakaian hari ini: ${userLimit.dailyCount || 0}/${this.RATE_LIMIT_CONFIG.DAILY_LIMIT}\n`;
-      message += `Cooldown: ${this.RATE_LIMIT_CONFIG.COOLDOWN_MINUTES} menit\n`;
-    }
-    
-    message += `\n⏰ Scheduler: Active\n📊 GA4: Connected\n📈 Laporan: Auto-generate (thread ${process.env.LAPORAN_THREAD_ID || 3})`;
-    
-    await this.bot.sendMessage(chatId, message, {
-      parse_mode: 'HTML',
-      ...(threadId && { message_thread_id: threadId })
-    });
-    
-    console.log(`✅ Status sistem sent to ${userId}`);
-    
-    if (userType === 'registered') {
-      try {
-        console.log(`📊 Generating laporan for registered user ${userName}...`);
+        const rateLimitCheck = this.checkRateLimit(userId, threadId);
         
-        const laporanResult = await this.generateLaporan(userId, userName);
-        
-        if (laporanResult.success) {
-          const laporanThreadId = process.env.LAPORAN_THREAD_ID || 3;
-          await this.sendLaporanToThread(laporanResult.message, laporanThreadId);
-          
-          console.log(`✅ Laporan sent to thread ${laporanThreadId} for user ${userId} (silent mode)`);
-          console.log(`   GA4 Source: ${laporanResult.stats.source}`);
-        } else {
-          console.error(`❌ Failed to generate laporan for ${userId}: ${laporanResult.error}`);
+        if (!rateLimitCheck.allowed) {
+            console.log(`⏰ Rate limit blocked for ${userId}: ${rateLimitCheck.reason}`);
+            // 🎯 HANYA KIRIM PESAN JIKA RATE LIMIT DITOLAK
+            await this.bot.sendMessage(chatId, rateLimitCheck.message, {
+                parse_mode: 'HTML',
+                ...(threadId && { message_thread_id: threadId })
+            });
+            return;
         }
-      } catch (error) {
-        console.error('❌ Error in laporan process:', error.message);
-      }
+        
+        console.log(`✅ Rate limit passed: ${rateLimitCheck.dailyCount}/${rateLimitCheck.dailyLimit}`);
+        
+        // 🎯 LANGSUNG GENERATE & KIRIM LAPORAN KE THREAD 3 (TANPA KONFIRMASI)
+        try {
+            console.log(`📊 Generating laporan for registered user ${userName}...`);
+            
+            const laporanResult = await this.generateLaporan(userId, userName);
+            
+            if (laporanResult.success) {
+                const laporanThreadId = process.env.LAPORAN_THREAD_ID || 3;
+                await this.sendLaporanToThread(laporanResult.message, laporanThreadId);
+                
+                console.log(`✅ Laporan sent to thread ${laporanThreadId} for user ${userId} (SILENT MODE)`);
+                console.log(`   GA4 Source: ${laporanResult.stats.source}`);
+                console.log(`   Active Users: ${laporanResult.stats.activeUsers}, Views: ${laporanResult.stats.views}`);
+                
+                // 🎯 TIDAK ADA REPLY / KONFIRMASI KE USER
+                // Laporan hanya muncul di thread 3, user tidak dapat pesan apapun
+            } else {
+                console.error(`❌ Failed to generate laporan for ${userId}: ${laporanResult.error}`);
+                // 🎯 HANYA KIRIM ERROR JIKA GAGAL
+                await this.bot.sendMessage(chatId, 
+                    `❌ Gagal generate laporan. Silakan coba lagi nanti.`,
+                    {
+                        ...(threadId && { message_thread_id: threadId })
+                    }
+                );
+            }
+        } catch (error) {
+            console.error('❌ Error in laporan process:', error.message);
+            // 🎯 HANYA KIRIM ERROR JIKA EXCEPTION
+            await this.bot.sendMessage(chatId, 
+                `❌ Error sistem. Silakan coba lagi nanti.`,
+                {
+                    ...(threadId && { message_thread_id: threadId })
+                }
+            );
+        }
+        return; // SELESAI - TANPA PESAN KONFIRMASI
     }
     
+    // ========== UNTUK ADMIN: TAMPILKAN STATUS SISTEM ==========
     if (userType === 'admin') {
-      await this.bot.sendMessage(chatId, 
-        `👑 <b>Admin Mode</b>\n\n` +
-        `Sebagai admin, Anda bebas dari rate limiting.\n` +
-        `Commands:\n` +
-        `• /laporan_test - Test generate laporan dengan data GA4\n` +
-        `• /edit_user - Edit artikel/link user\n` +
-        `• /daftar - Registrasi user baru\n` +
-        `• /lihat_user - Lihat semua user\n` +
-        `• /rate_limit USER_ID - Cek rate limit user\n\n` +
-        `<i>Registered users akan auto-generate laporan di thread 3 (silent mode) dengan data REAL dari GA4</i>`,
-        {
-          parse_mode: 'HTML',
-          ...(threadId && { message_thread_id: threadId })
+        const variables = {
+            'Bot Status': '🟢 Online',
+            'Access Control': '🔒 Active',
+            'Auto-Kick': accessControl.AUTO_KICK_ENABLED ? '✅ Enabled' : '❌ Disabled',
+            'Registered Users': Object.keys(users).length,
+            'User Type': userType,
+            'Admin ID': accessControl.ADMIN_CHAT_ID,
+            'Laporan Thread': process.env.LAPORAN_THREAD_ID || 3,
+            'GA4 Data': '📈 Real-time'
+        };
+        
+        let message = `🔍 <b>Status Sistem</b>\n\n`;
+        for (const [key, value] of Object.entries(variables)) {
+            message += `${key}: ${value}\n`;
         }
-      );
+        
+        message += `\n⏰ Scheduler: Active\n📊 GA4: Connected\n📈 Laporan: Auto-generate (thread ${process.env.LAPORAN_THREAD_ID || 3})`;
+        
+        await this.bot.sendMessage(chatId, message, {
+            parse_mode: 'HTML',
+            ...(threadId && { message_thread_id: threadId })
+        });
+        
+        console.log(`✅ Status sistem sent to admin ${userId}`);
+        
+        // Info untuk admin tentang mode silent
+        await this.bot.sendMessage(chatId, 
+            `👑 <b>Admin Mode</b>\n\n` +
+            `Sebagai admin, Anda bebas dari rate limiting.\n` +
+            `<b>Mode User Registered:</b>\n` +
+            `• /cekvar → Laporan otomatis ke thread 3 (SILENT TOTAL)\n` +
+            `• Tidak ada konfirmasi/reply ke user\n` +
+            `• Hanya muncul error jika gagal/rate limit\n\n` +
+            `<i>User hanya tahu laporan berhasil jika melihat thread 3</i>`,
+            {
+                parse_mode: 'HTML',
+                ...(threadId && { message_thread_id: threadId })
+            }
+        );
     }
-  }
+}
 
   async handleLihatUser(msg) {
     const userId = msg.from.id.toString();
